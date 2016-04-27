@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "shared_mem.h"
 #include "mongoose/mongoose.h"
 #include "test_state.h"
-#include "dev_tools.h"
 #include "trace.h"
 #include "requests.h"
 #include <atlutil.h>
@@ -65,18 +64,20 @@ static const char * BLANK_HTML = "HTTP/1.1 200 OK\r\n"
     "<script type=\"text/javascript\">\r\n"
     "var dummy=1;\r\n"
     "</script>\r\n"
-    "</head><body></body></html>";
+    "</head><body>\r\n"
+    "<img style=\"position: fixed; left: -2px; width: 1px; height: 1px\" "
+    "src=\"https://www.google.com/favicon.ico\">\r\n"
+    "</body></html>";
 
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
 TestServer::TestServer(WptHook& hook, WptTestHook &test, TestState& test_state,
-                        Requests& requests, DevTools &dev_tools, Trace &trace)
+                        Requests& requests, Trace &trace)
   :mongoose_context_(NULL)
   ,hook_(hook)
   ,test_(test)
   ,test_state_(test_state)
   ,requests_(requests)
-  ,dev_tools_(dev_tools)
   ,trace_(trace)
   ,started_(false) {
   InitializeCriticalSection(&cs);
@@ -210,6 +211,11 @@ void TestServer::MongooseCallback(enum mg_event event,
       if (first_paint < 0 || first_paint > 3600000)
         first_paint = 0;
       hook_.SetFirstPaint(first_paint);
+      DWORD dom_interactive = 0;
+      GetDwordParam(request_info->query_string, "domInteractive", dom_interactive);
+      if (dom_interactive < 0 || dom_interactive > 3600000)
+        dom_interactive = 0;
+      hook_.SetDomInteractiveEvent(dom_interactive);
       SendResponse(conn, request_info, RESPONSE_OK, RESPONSE_OK_STR, "");
     } else if (strcmp(request_info->uri, "/event/navigate") == 0) {
       hook_.OnNavigate();
@@ -252,6 +258,10 @@ void TestServer::MongooseCallback(enum mg_event event,
       //OutputDebugString(body);
       requests_.ProcessBrowserRequest(body);
       SendResponse(conn, request_info, RESPONSE_OK, RESPONSE_OK_STR, "");
+    } else if (strcmp(request_info->uri, "/event/initiator") == 0) {
+      CStringA body = GetPostBodyA(conn, request_info);
+      requests_.ProcessInitiatorData(body);
+      SendResponse(conn, request_info, RESPONSE_OK, RESPONSE_OK_STR, "");
     } else if (strcmp(request_info->uri, "/event/user_timing") == 0) {
       CString body = GetPostBody(conn, request_info);
       test_state_.SetUserTiming(body);
@@ -278,11 +288,6 @@ void TestServer::MongooseCallback(enum mg_event event,
       if (GetDwordParam(request_info->query_string, "domCount", dom_count) &&
           dom_count)
         test_state_._dom_element_count = dom_count;
-      SendResponse(conn, request_info, RESPONSE_OK, RESPONSE_OK_STR, "");
-    } else if (strcmp(request_info->uri, "/event/devTools") == 0) {
-      CStringA body = CT2A(GetPostBody(conn, request_info));
-      if (body.GetLength())
-        dev_tools_.AddRawEvents(body);
       SendResponse(conn, request_info, RESPONSE_OK, RESPONSE_OK_STR, "");
     } else if (strcmp(request_info->uri, "/event/trace") == 0) {
       CStringA body = CT2A(GetPostBody(conn, request_info));

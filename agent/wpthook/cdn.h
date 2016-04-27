@@ -104,7 +104,8 @@ CDN_PROVIDER cdnList[] = {
   {".wscloudcdn.com", "ChinaNetCenter"},
   {".ourwebpic.com", "ChinaNetCenter"},
   {".att-dsa.net", "AT&T"},
-  {".vo.msecnd.net", "Windows Azure"},
+  {".vo.msecnd.net", "Microsoft Azure"},
+  {".azureedge.net", "Microsoft Azure"},
   {".voxcdn.net", "VoxCDN"},
   {".bluehatnetwork.com", "Blue Hat Network"},
   {".swiftcdn1.com", "SwiftCDN"},
@@ -201,7 +202,7 @@ CDN_PROVIDER_HEADER cdnHeaderList[] = {
   {"X-Iinfo", "", "Incapsula"},
   {"X-Ar-Debug", "", "Aryaka"},
   {"server", "gocache", "GoCache"},
-  {"server", "hiberniacdn", "HiberniaCDN"}
+  {"server", "hiberniacdn", "HiberniaCDN"},
   {"server", "UnicornCDN","UnicornCDN"}
 };
 

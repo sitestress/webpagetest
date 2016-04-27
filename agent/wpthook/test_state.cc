@@ -36,7 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Mmsystem.h>
 #include <WtsApi32.h>
 #include "wpt_test_hook.h"
-#include "dev_tools.h"
 #include "trace.h"
 
 static const DWORD ON_LOAD_GRACE_PERIOD = 100;
@@ -49,14 +48,13 @@ static const DWORD RESPONSIVE_BROWSER_WIDTH = 480;
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
 TestState::TestState(Results& results, ScreenCapture& screen_capture, 
-                      WptTestHook &test, DevTools& dev_tools, Trace& trace):
+                      WptTestHook &test, Trace& trace):
   _results(results)
   ,_screen_capture(screen_capture)
   ,_frame_window(NULL)
   ,_exit(false)
   ,_data_timer(NULL)
   ,_test(test)
-  ,_dev_tools(dev_tools)
   ,_trace(trace)
   ,no_gdi_(false)
   ,gdi_only_(false)
@@ -90,6 +88,7 @@ void TestState::Init() {
 void TestState::Reset(bool cascade) {
   EnterCriticalSection(&_data_cs);
   _step_start.QuadPart = 0;
+  _dom_interactive = 0;
   _dom_content_loaded_event_start = 0;
   _dom_content_loaded_event_end = 0;
   _load_event_start = 0;
@@ -120,6 +119,7 @@ void TestState::Reset(bool cascade) {
     _video_capture_count = 0;
     _start.QuadPart = 0;
     _on_load.QuadPart = 0;
+    _dom_interactive = 0;
     _dom_content_loaded_event_start = 0;
     _dom_content_loaded_event_end = 0;
     _load_event_start = 0;
@@ -153,6 +153,7 @@ void TestState::Reset(bool cascade) {
     _custom_metrics.Empty();
     _user_timing.Empty();
     navigating_ = false;
+    _first_request_sent = false;
     GetSystemTime(&_start_time);
   }
   LeaveCriticalSection(&_data_cs);
@@ -222,6 +223,7 @@ void TestState::OnNavigate() {
     WptTrace(loglevel::kFunction,
              _T("[wpthook] TestState::OnNavigate()\n"));
     UpdateBrowserWindow();
+    _dom_interactive = 0;
     _dom_content_loaded_event_start = 0;
     _dom_content_loaded_event_end = 0;
     _load_event_start = 0;
@@ -238,6 +240,18 @@ void TestState::OnNavigate() {
       QueryPerformanceCounter(&_first_navigate);
     ActivityDetected();
   }
+}
+
+/*-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------*/
+void TestState::SendingRequest() {
+  EnterCriticalSection(&_data_cs);
+  if (_active && navigating_ && !_first_request_sent) {
+    _first_request_sent = true;
+    // fix up the navigation start time to match when the first event was sent
+    QueryPerformanceCounter(&_first_navigate);
+  }
+  LeaveCriticalSection(&_data_cs);
 }
 
 /*-----------------------------------------------------------------------------
@@ -269,6 +283,13 @@ void TestState::RecordTime(CString name, DWORD time, LARGE_INTEGER *out_time) {
              _T("[wpthook] - Record %s from hook: %dms (instead of %dms)\n"),
              name, elapsed_time, time);
   }
+}
+
+/*-----------------------------------------------------------------------------
+  Save web timings for DOMInteractive event.
+-----------------------------------------------------------------------------*/
+void TestState::SetDomInteractiveEvent(DWORD domInteractive) {
+  _dom_interactive = domInteractive;
 }
 
 /*-----------------------------------------------------------------------------

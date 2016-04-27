@@ -226,7 +226,11 @@ bool WebBrowser::RunAndWait() {
                           0, NULL, NULL, &si, &pi)) {
           CloseHandle(pi.hThread);
           CloseHandle(pi.hProcess);
-          if (WaitForSingleObject(_browser_started_event, 60000) ==
+          DWORD wait_time = 60000;
+          #ifdef DEBUG
+          wait_time = INFINITE;
+          #endif
+          if (WaitForSingleObject(_browser_started_event, wait_time) ==
               WAIT_OBJECT_0) {
             DWORD pid = GetBrowserProcessId();
             if (pid) {
@@ -359,7 +363,7 @@ bool WebBrowser::ConfigureIpfw(WptTestDriver& test) {
     buff.Format(_T("[wptdriver] - Throttling: %d Kbps in, %d Kbps out, ")
                 _T("%d ms latency, %0.2f plr"), test._bwIn, test._bwOut, 
                 test._latency, test._plr );
-    AtlTrace(buff);
+    ATLTRACE(buff);
 
     if (_ipfw.SetPipe(PIPE_IN, test._bwIn, latency,test._plr/100.0)) {
       // make up for odd values
@@ -376,7 +380,7 @@ bool WebBrowser::ConfigureIpfw(WptTestDriver& test) {
     ret = true;
 
   if (!ret) {
-    AtlTrace(_T("[wptdriver] - Error Configuring dummynet"));
+    ATLTRACE(_T("[wptdriver] - Error Configuring dummynet"));
   }
 
   return ret;

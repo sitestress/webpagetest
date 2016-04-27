@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 class Results;
 class ScreenCapture;
 class WptTestHook;
-class DevTools;
 class Trace;
 
 const int TEST_RESULT_NO_ERROR = 0;
@@ -83,14 +82,16 @@ public:
 class TestState {
 public:
   TestState(Results& results, ScreenCapture& screen_capture,
-            WptTestHook &test, DevTools& dev_tools, Trace& trace);
+            WptTestHook &test, Trace& trace);
   ~TestState(void);
 
   void Start();
+  void SendingRequest();
   void ActivityDetected();
   void OnNavigate();
   void OnNavigateComplete();
   void OnAllDOMElementsLoaded(DWORD load_time);
+  void SetDomInteractiveEvent(DWORD domInteractive);
   void SetDomContentLoadedEvent(DWORD start, DWORD end);
   void SetLoadEvent(DWORD load_event_start, DWORD load_event_end);
   void SetFirstPaint(DWORD first_paint);
@@ -125,6 +126,7 @@ public:
   LARGE_INTEGER _step_start;
   LARGE_INTEGER _first_navigate;
   LARGE_INTEGER _dom_elements_time;
+  DWORD _dom_interactive;
   DWORD _dom_content_loaded_event_start;
   DWORD _dom_content_loaded_event_end;
   LARGE_INTEGER _on_load;
@@ -183,11 +185,11 @@ public:
   CString                  _user_timing;       // JSON-formatted user timing data (from Chrome traces)
 
 private:
+  bool  _first_request_sent;
   bool  _started;
   int   _next_document;
   Results&  _results;
   ScreenCapture& _screen_capture;
-  DevTools &_dev_tools;
   Trace &_trace;
   HANDLE  _data_timer;
   CAtlList<CString>        _console_log_messages; // messages to the console

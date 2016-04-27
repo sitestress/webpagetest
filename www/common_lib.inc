@@ -103,6 +103,40 @@ function GetLocationKey($location) {
   return $key;
 }
 
+function GetLocationFallbacks($location) {
+  $fallback = null;
+  if (isset($location) && strlen($location)) {
+    if (function_exists('apc_fetch') &&
+        function_exists('apc_store')) {
+      $fallback = apc_fetch("fallback_$location");
+      if ($fallback === false) {
+        $fallback = '';
+        $locations = LoadLocationsIni();
+        if ($locations !== false &&
+            is_array($locations) &&
+            isset($locations[$location]) &&
+            isset($locations[$location]['fallback'])) {
+          $fallback = $locations[$location]['fallback'];
+        }
+        apc_store("fallback_$location", $key, 60);
+      }
+    } else {
+      $locations = LoadLocationsIni();
+      if ($locations !== false &&
+          is_array($locations) &&
+          isset($locations[$location]) &&
+          isset($locations[$location]['fallback'])) {
+        $fallback = $locations[$location]['fallback'];
+      }
+    }
+  }
+  
+  $fallbacks = array();
+  if (isset($fallback) && strlen($fallback))
+    $fallbacks = explode(',', $fallback);
+  return $fallbacks;
+}
+
 // Load the locations from locations.ini and merge-in the ec2 locations if necessary
 function LoadLocationsIni() {
   $ec2_allow = GetSetting('ec2_allow');
@@ -1933,14 +1967,23 @@ function json_response(&$response) {
     if( array_key_exists('r', $_REQUEST) && strlen($_REQUEST['r']) )
         $ret['requestId'] = $_REQUEST['r'];
     
+    $out = null;
     if (version_compare(phpversion(), '5.4.0') >= 0 &&
         array_key_exists('pretty', $_REQUEST) &&
         $_REQUEST['pretty']) {
-      echo json_encode($response, JSON_PRETTY_PRINT);
+      $out = json_encode($response, JSON_PRETTY_PRINT);
     } else {
-      echo json_encode($response);
+      $out = json_encode($response);
     }
 
+    if (!isset($out) || $out === false || !is_string($out) || strlen($out) < 3) {
+      require_once('lib/json.php');
+      $jsonLib = new Services_JSON();
+      $out = $jsonLib->encode($response);
+    }
+    
+    echo $out;
+    
     if( isset($_REQUEST['callback']) && strlen($_REQUEST['callback']) )
         echo ");";
 }
@@ -2716,5 +2759,23 @@ function WaitForSystemLoad($max_load, $timeout) {
       }
     } while ($wait);
   }
+}
+
+/**
+* See if the system is running over the configured max load setting.
+* This allows for bailing out of some optional CPU-intensive operations.
+* 
+*/
+function OverSystemLoad() {
+  $over = false;
+  $max_load = GetSetting('render_max_load');
+  if ($max_load !== false && $max_load > 0 && function_exists('sys_getloadavg')) {
+    $load = sys_getloadavg();
+    if ($load[0] > $max_load) {
+      $over = true;
+    }
+  }
+
+  return $over;
 }
 ?>
