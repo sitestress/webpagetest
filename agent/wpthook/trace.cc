@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "StdAfx.h"
 #include "trace.h"
 #include "rapidjson/document.h"
+#include <zlib.h>
 
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
@@ -57,91 +58,27 @@ bool Trace::Write(CString file) {
   bool ok = false;
   EnterCriticalSection(&cs_);
   if (!events_.IsEmpty()) {
-    HANDLE file_handle = CreateFile(file, GENERIC_WRITE, 0, 0,
-                                    CREATE_ALWAYS, 0, 0);
-    if (file_handle != INVALID_HANDLE_VALUE) {
-      DWORD bytes_written;
+    gzFile dst = gzopen((LPCSTR)CT2A(file + _T(".gz")), "wb9");
+    if (dst) {
       ok = true;
       bool first = true;
-      CStringA event_string = "{\"traceEvents\": [";
-      WriteFile(file_handle, (LPCSTR)event_string, event_string.GetLength(), &bytes_written, 0);
+      CStringA event_string = "{\"traceEvents\": [\n";
+      gzwrite(dst, (voidpc)(LPCSTR)event_string, (unsigned int)event_string.GetLength());
       POSITION pos = events_.GetHeadPosition();
       while (pos) {
         event_string = events_.GetNext(pos);
-        event_string.Trim("[]");
+        event_string.Trim("[],\n");
         if (event_string.GetLength()) {
-          if (first)
-            first = false;
-          else
-            event_string = CStringA(",") + event_string;
-          WriteFile(file_handle, (LPCSTR)event_string,
-                    event_string.GetLength(), &bytes_written, 0);
-        }
-      }
-      event_string = "]}";
-      WriteFile(file_handle, (LPCSTR)event_string, event_string.GetLength(), &bytes_written, 0);
-      CloseHandle(file_handle);
-    }
-  }
-  LeaveCriticalSection(&cs_);
-  return ok;
-}
-
-/*-----------------------------------------------------------------------------
-  Parse the trace data for the CPU timings
------------------------------------------------------------------------------*/
-void Trace::Process() {
-/*
-  CStringA json;
-  if (!processed_ && GetJSON(json) && json.GetLength()) {
-    using namespace rapidjson;
-    Document document;
-    size_t json_len = json.GetLength();
-    char * buff = (char *)malloc(json_len + 1);
-    if (buff) {
-      memcpy(buff, (LPCSTR)json, json_len);
-      json.Empty();
-      if (!document.ParseInsitu(buff).HasParseError()) {
-        OutputDebugStringA("Parsed JSON");
-        const Value& events = document["traceEvents"];
-        if (events.IsArray()) {
-          for (SizeType i = 0; i < events.Size(); i++) {
-            const Value& event = events[i];
-            ProcessTraceEvent(event)
-          }
-        }
-      } else {
-        OutputDebugStringA("FAILED to Parse JSON");
-      }
-      free(buff);
-    }
-  }
-*/
-}
-
-/*-----------------------------------------------------------------------------
------------------------------------------------------------------------------*/
-bool Trace::GetJSON(CStringA &json) {
-  bool ok = false;
-  EnterCriticalSection(&cs_);
-  if (!events_.IsEmpty()) {
-    ok = true;
-    json = "{\"traceEvents\": [";
-    bool first = true;
-    CStringA chunk;
-    POSITION pos = events_.GetHeadPosition();
-    while (pos) {
-      chunk = events_.GetNext(pos);
-      chunk.Trim("[]");
-      if (chunk.GetLength()) {
-        if (first)
+          if (!first)
+            event_string = CStringA(",\n") + event_string;
           first = false;
-        else
-          chunk = CStringA(",") + chunk;
-        json += chunk;
+          gzwrite(dst, (voidpc)(LPCSTR)event_string, (unsigned int)event_string.GetLength());
+        }
       }
+      event_string = "\n]}";
+      gzwrite(dst, (voidpc)(LPCSTR)event_string, (unsigned int)event_string.GetLength());
+      gzclose(dst);
     }
-    json = "]}";
   }
   LeaveCriticalSection(&cs_);
   return ok;

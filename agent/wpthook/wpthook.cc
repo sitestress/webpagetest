@@ -115,7 +115,7 @@ static unsigned __stdcall ThreadProc( void* arg ) {
 void WptHook::Init(){
   WptTrace(loglevel::kFunction, _T("[wpthook] Init()\n"));
 #ifdef DEBUG
-  MessageBox(NULL, L"Attach Debugger", L"Attach Debugger", MB_OK);
+  //MessageBox(NULL, L"Attach Debugger", L"Attach Debugger", MB_OK);
 #endif
   test_.LoadFromFile();
   if (!test_state_.gdi_only_) {
@@ -162,6 +162,12 @@ void WptHook::Start() {
 -----------------------------------------------------------------------------*/
 void WptHook::SetDomInteractiveEvent(DWORD domInteractive) {
   test_state_.SetDomInteractiveEvent(domInteractive);
+}
+
+/*-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------*/
+void WptHook::SetDomLoadingEvent(DWORD domLoading) {
+  test_state_.SetDomLoadingEvent(domLoading);
 }
 
 /*-----------------------------------------------------------------------------
@@ -217,9 +223,9 @@ void WptHook::OnReport() {
       results_.Save();
     test_.CollectDataDone();
     if (test_.Done()) {
+      results_.Save();
       test_state_._exit = true;
       test_server_.Stop();
-      results_.Save();
       done_ = true;
       if (test_state_._frame_window) {
         WptTrace(loglevel::kTrace, 

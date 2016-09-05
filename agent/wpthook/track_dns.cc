@@ -60,6 +60,8 @@ TrackDns::~TrackDns(void){
 -----------------------------------------------------------------------------*/
 bool TrackDns::BlockLookup(CString name) {
   bool block = false;
+
+  // Check the hard-coded block list
   LPCTSTR * domain = blocked_domains;
   name.MakeLower();
   while (*domain && !block) {
@@ -67,6 +69,28 @@ bool TrackDns::BlockLookup(CString name) {
       block = true;
     domain++;
   }
+
+  // Check the list from the blockDomains script command
+  if (!_test._block_domains.IsEmpty()) {
+    POSITION pos = _test._block_domains.GetHeadPosition();
+    while (!block && pos) {
+      CString block_domain = _test._block_domains.GetNext(pos);
+      if (!block_domain.CompareNoCase(name))
+        block = true;
+    }
+  }
+
+  // Check the list from the blockDomainsExcept script command
+  if (!_test._block_domains_except.IsEmpty()) {
+    block = true;
+    POSITION pos = _test._block_domains_except.GetHeadPosition();
+    while (block && pos) {
+      CString allow_domain = _test._block_domains_except.GetNext(pos);
+      if (!allow_domain.CompareNoCase(name))
+        block = false;
+    }
+  }
+
   return block;
 }
 
@@ -311,8 +335,8 @@ void TrackDns::AddAddress(CString host, DWORD address) {
 
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
-int TrackDns::GetAddressCount(CString host) {
-  int count = 0;
+size_t TrackDns::GetAddressCount(CString host) {
+  size_t count = 0;
   bool found = false;
   EnterCriticalSection(&cs);
   POSITION pos = _host_addresses.GetHeadPosition();

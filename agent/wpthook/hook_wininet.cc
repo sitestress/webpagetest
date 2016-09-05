@@ -211,6 +211,13 @@ HINTERNET WinInetHook::InternetOpenW(LPCWSTR lpszAgent, DWORD dwAccessType,
   ATLTRACE(_T("WinInetHook::InternetOpenW"));
 
   CString agent(lpszAgent);
+  if (agent.Find(_T("WebPagetest")) == -1) {
+    if (agent.Find(CA2T(" " + _test._user_agent_modifier + "/")) == -1) {
+      CStringA append = _test.GetAppendUA();
+      if (append.GetLength())
+        agent += CA2T(" " + append);
+    }
+  }
   if( _InternetOpenW )
     ret = _InternetOpenW((LPCWSTR)CT2W(agent), dwAccessType, lpszProxy, 
                           lpszProxyBypass, dwFlags);
@@ -227,6 +234,13 @@ HINTERNET WinInetHook::InternetOpenA(LPCSTR lpszAgent, DWORD dwAccessType,
   ATLTRACE(_T("WinInetHook::InternetOpenA"));
 
   CString agent((LPCTSTR)CA2T(lpszAgent, CP_UTF8));
+  if (agent.Find(_T("WebPagetest")) == -1) {
+    if (agent.Find(CA2T(" " + _test._user_agent_modifier + "/")) == -1) {
+      CStringA append = _test.GetAppendUA();
+      if (append.GetLength())
+        agent += CA2T(" " + append);
+    }
+  }
   if( _InternetOpenA )
     ret = _InternetOpenA((LPCSTR)CT2A(agent), dwAccessType, lpszProxy, 
                           lpszProxyBypass, dwFlags);
@@ -589,11 +603,27 @@ BOOL WinInetHook::HttpAddRequestHeadersW(HINTERNET hRequest,
   LPCWSTR lpszHeaders, DWORD dwHeadersLength, DWORD dwModifiers) {
   BOOL ret = FALSE;
 
-  ATLTRACE(_T("WinInetHook::HttpAddRequestHeadersW"));
+  ATLTRACE(_T("WinInetHook::HttpAddRequestHeadersW: %s"), lpszHeaders);
 
-  CString headers = CW2CT(lpszHeaders);
+  CStringA headers = CT2A(lpszHeaders);
+  EnterCriticalSection(&cs);
+  bool secure = false;
+  _https_requests.Lookup(hRequest, secure);
+  LeaveCriticalSection(&cs);
+  if (secure) {
+    CStringA out_headers("");
+    int pos = 0;
+    while (pos >= 0) {
+      CStringA header = headers.Tokenize("\n", pos).Trim();
+      _test.ModifyRequestHeader(header);
+      if (header.GetLength())
+        out_headers += header + "\r\n";
+    }
+    headers = out_headers;
+    ATLTRACE(_T("WinInetHook::HttpAddRequestHeadersW (new): %s"), CA2T((LPCSTR)headers));
+  }
   if( _HttpAddRequestHeadersW )
-    ret = _HttpAddRequestHeadersW(hRequest, CT2CW(headers), 
+    ret = _HttpAddRequestHeadersW(hRequest, CA2T((LPCSTR)headers), 
             headers.GetLength(), dwModifiers);
 
   return ret;
@@ -605,11 +635,27 @@ BOOL WinInetHook::HttpAddRequestHeadersA(HINTERNET hRequest,
   LPCSTR lpszHeaders, DWORD dwHeadersLength, DWORD dwModifiers) {
   BOOL ret = FALSE;
 
-  ATLTRACE(_T("WinInetHook::HttpAddRequestHeadersA"));
+  ATLTRACE(_T("WinInetHook::HttpAddRequestHeadersA: %S"), lpszHeaders);
 
-  CString headers = CA2CT(lpszHeaders);
+  CStringA headers(lpszHeaders);
+  EnterCriticalSection(&cs);
+  bool secure = false;
+  _https_requests.Lookup(hRequest, secure);
+  LeaveCriticalSection(&cs);
+  if (secure) {
+    CStringA out_headers("");
+    int pos = 0;
+    while (pos >= 0) {
+      CStringA header = headers.Tokenize("\n", pos).Trim();
+      _test.ModifyRequestHeader(header);
+      if (header.GetLength())
+        out_headers += header + "\r\n";
+    }
+    headers = out_headers;
+    ATLTRACE(_T("WinInetHook::HttpAddRequestHeadersA (new): %S"), (LPCSTR)headers);
+  }
   if( _HttpAddRequestHeadersA )
-    ret = _HttpAddRequestHeadersA(hRequest, CT2CA(headers), 
+    ret = _HttpAddRequestHeadersA(hRequest, (LPCSTR)headers, 
             headers.GetLength(), dwModifiers);
 
   return ret;

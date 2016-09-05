@@ -45,7 +45,6 @@ private:
   WptStatus&  _status;
   WebPagetest _webpagetest;
   WebBrowser *_browser;
-  CWinPCap    _winpcap;
   bool        _exit;
   bool        _installing;
   HANDLE      _work_thread;
@@ -71,6 +70,6 @@ private:
   void PreTest();
   void PostTest();
   bool Startup();
-  LPTSTR GetAppInitString(LPCTSTR new_dll);
+  LPTSTR GetAppInitString(LPCTSTR new_dll, bool is64bit);
   bool NeedsReboot();
 };
