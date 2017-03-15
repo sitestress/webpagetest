@@ -32,11 +32,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "wpthook.h"
 #include "../wptdriver/wpt_test.h"
 
-static LPCTSTR blocked_domains[] = {
-  _T(".pack.google.com"),     // Chrome crx update URL
-  _T(".gvt1.com"),            // Chrome crx update URL
-  _T("clients1.google.com"),  // Autofill update downloads
-  _T("shavar.services.mozilla.com"), // Firefox tracking protection updates
+static LPCSTR blocked_domains[] = {
+  ".*\\.pack\\.google\\.com",          // Chrome crx update URL
+  ".*\\.gvt1\\.com",                   // Chrome crx update URL
+  "clients1\\.google\\.com",           // Autofill update downloads
+  "shavar\\.services\\.mozilla\\.com", // Firefox tracking protection updates
+  "shavar\\.stage\\.mozaws\\.net",
+  "aus[^\\.]*\\.mozilla\\.org",        // Firefox update service
+  "cdm\\.download\\.adobe\\.com",      // Firefox adobe updates
+  "safebrowsing\\.google\\.com",       // Google safebrowsing list (Firefox)
   NULL
 };
 
@@ -60,12 +64,13 @@ TrackDns::~TrackDns(void){
 -----------------------------------------------------------------------------*/
 bool TrackDns::BlockLookup(CString name) {
   bool block = false;
+  name.MakeLower();
 
   // Check the hard-coded block list
-  LPCTSTR * domain = blocked_domains;
-  name.MakeLower();
+  LPCSTR * domain = blocked_domains;
+  CStringA check_name(CT2A((LPCTSTR)name, CP_UTF8));
   while (*domain && !block) {
-    if (name.Find(*domain) != -1)
+    if (RegexMatch(check_name, *domain))
       block = true;
     domain++;
   }
@@ -100,9 +105,7 @@ void * TrackDns::LookupStart(CString& name) {
   if (!name.GetLength() || name == _T("127.0.0.1"))
     return NULL;
 
-  WptTrace(loglevel::kFrequentEvent, 
-            _T("[wshook] (%d) DNS Lookup for '%s' started\n"), 
-              GetCurrentThreadId(), (LPCTSTR)name);
+  ATLTRACE(L"[wshook] (%d) DNS Lookup for '%s' started", GetCurrentThreadId(), (LPCWSTR)name);
   CheckCDN(name, name);
 
   // we need to check for overrides even if we aren't active
@@ -136,10 +139,9 @@ void TrackDns::LookupAddress(void * context, ULONG &addr) {
     LeaveCriticalSection(&cs);
     IN_ADDR address;
     address.S_un.S_addr = addr;
-    WptTrace(loglevel::kFrequentEvent, 
-      _T("[wshook] (%d) DNS Lookup address: %s -> %d.%d.%d.%d\n"), 
+    ATLTRACE(L"[wshook] (%d) DNS Lookup address: %s -> %d.%d.%d.%d", 
       GetCurrentThreadId(),
-      info->_name,
+      (LPCWSTR)info->_name,
       address.S_un.S_un_b.s_b1
       ,address.S_un.S_un_b.s_b2
       ,address.S_un.S_un_b.s_b3
@@ -157,8 +159,7 @@ void TrackDns::LookupAlias(CString name, CString alias) {
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
 void TrackDns::LookupDone(void * context, int result) {
-  WptTrace(loglevel::kFrequentEvent, 
-            _T("[wshook] (%d) DNS Lookup complete\n"), GetCurrentThreadId());
+  ATLTRACE("[wshook] (%d) DNS Lookup complete", GetCurrentThreadId());
 
   if (context) {
     DnsInfo * info = (DnsInfo *)context;

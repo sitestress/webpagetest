@@ -52,10 +52,16 @@ function GetVisualProgressForStep($localPaths, $runCompleted, $options = null, $
   }
   if (!isset($end) && !isset($options) && gz_is_file($cache_file)) {
     $frames = json_decode(gz_file_get_contents($cache_file), true);
-    if (!array_key_exists('frames', $frames) || !array_key_exists('version', $frames))
-      unset($frames);
-    elseif(array_key_exists('version', $frames) && $frames['version'] !== $current_version)
-      unset($frames);
+    if (isset($frames)) {
+      if (is_array($frames)) {
+        if (!array_key_exists('frames', $frames) || !array_key_exists('version', $frames))
+          unset($frames);
+        elseif(array_key_exists('version', $frames) && $frames['version'] !== $current_version)
+          unset($frames);
+      } else {
+        unset($frames);
+      }
+    }
   }    
   $base_path = substr($video_directory, 1);
   if ((!isset($frames) || !count($frames)) && (is_dir($video_directory) || gz_is_file($histograms_file))) {
@@ -151,6 +157,8 @@ function GetVisualProgressForStep($localPaths, $runCompleted, $options = null, $
     foreach($frames['frames'] as $time => &$frame) {
       if ($frame['progress'] > 0 && !array_key_exists('startRender', $frames))
         $frames['startRender'] = $time;
+      if (!isset($frames['visualComplete85']) && $frame['progress'] >= 85)
+        $frames['visualComplete85'] = $time;
       if (!$frames['visualComplete'] && $frame['progress'] == 100)
         $frames['visualComplete'] = $time;
       // fix up the frame paths in case we have a cached version referencing a relay path
@@ -282,7 +290,7 @@ function GetImageHistogram($image_file, $options, $histograms) {
 */
 function CalculateFrameProgress(&$histogram, &$start_histogram, &$final_histogram, $slop) {
   $progress = 0;
-  $channels = array_keys($histogram);
+  $channels = isset($histogram) ? array_keys($histogram) : array();
   $channelCount = count($channels);
   if ($channelCount > 0) {
     foreach ($channels as $index => $channel) {
@@ -311,7 +319,9 @@ function CalculateFrameProgress(&$histogram, &$start_histogram, &$final_histogra
           }
         }
       }
-      $progress += ($matched / $total) / $channelCount;
+      if ($total > 0) {
+        $progress += ($matched / $total) / $channelCount;
+      }
     }
   }
   return floor($progress * 100);

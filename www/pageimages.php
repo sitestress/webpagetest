@@ -10,11 +10,10 @@ require_once __DIR__ . '/include/UrlGenerator.php';
 global $testPath, $id, $run, $cached, $step; // defined in common.inc
 
 $secure = false;
-$haveLocations = false;
 $testInfo = TestInfo::fromFiles($testPath);
 $localPaths = new TestPaths($testPath, $run, $cached, $step);
 $urlGenerator = UrlGenerator::create(false, "", $id, $run, $cached, $step);
-$requests = getRequestsForStep($localPaths, $urlGenerator, $secure, $haveLocations, true);
+$requests = getRequestsForStep($localPaths, $urlGenerator, $secure);
 $page_keywords = array('Images','Webpagetest','Website Speed Test','Page Speed');
 $page_description = "Website speed test images$testLabel.";
 $userImages = true;
@@ -54,7 +53,7 @@ $userImages = true;
             if( array_key_exists('contentType', $request) &&
               !strncasecmp($request['contentType'], 'image/', 6)) {
               $index = $request['index'] + 1;
-              echo "<tr><td><b>$index:</b></td><td>";
+              echo "<tr id=\"image$index\"><td><b>$index:</b></td><td>";
               $reqUrl = "http://";
               if( $request['is_secure'] )
                 $reqUrl = "https://";
@@ -64,8 +63,8 @@ $userImages = true;
               if (array_key_exists('image_total', $request) && $request['image_total'] > 0) {
                 echo number_format(((float)$request['image_total'] / 1024.0), 1). " KB {$request['contentType']}<br>";
                 if (array_key_exists('image_save', $request) && $request['image_save'] > 1000) {
-                  $q85 = number_format((float)(($request['image_total'] - $request['image_save']) / 1024.0), 1);
-                  echo "Quality 85 optimized size: $q85 KB (<b>" . number_format(((float)$request['image_save'] / 1024.0), 1). " KB smaller</b>)<br>";
+                  $optimizedSize = number_format((float)(($request['image_total'] - $request['image_save']) / 1024.0), 1);
+                  echo "Optimized size: $optimizedSize KB (<b>" . number_format(((float)$request['image_save'] / 1024.0), 1). " KB smaller</b>)<br>";
                 }
               } else if (array_key_exists('objectSize', $request)) {
                 echo number_format(((float)$request['objectSize'] / 1024.0), 1). " KB {$request['contentType']}<br>";

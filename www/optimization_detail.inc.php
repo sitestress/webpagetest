@@ -105,7 +105,7 @@ function createGradeArray($scores) {
   $opt['combine']['label'] = 'Combine js and css files';
   $opt['cdn']['label'] = 'Effective use of CDN';
   $opt['cookies']['label'] = 'No cookies on static content';
-  $opt['minify']['label'] = 'Minify javascript';
+  $opt['minify']['label'] = 'Minify JavaScript';
   $opt['e-tags']['label'] = 'Disable E-Tags';
 
   // flag the important ones
@@ -209,7 +209,7 @@ function getTargetTTFBForStep($localPaths, $rtt) {
   require_once('object_detail.inc');
 
   $secure = false;
-  $requests = getRequestsForStep($localPaths, null, $secure, $haveLocations, false);
+  $requests = getRequestsForStep($localPaths, null, $secure);
   if( count($requests) )
   {
     // figure out what the RTT is to the server (take the connect time from the first request unless it is over 3 seconds)

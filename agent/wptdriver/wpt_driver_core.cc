@@ -37,6 +37,8 @@ const TCHAR * BROWSERS[] = {
   _T("chrome.exe"),
   _T("firefox.exe"),
   _T("iexplore.exe"),
+  _T("MicrosoftEdge.exe"),
+  _T("MicrosoftEdgeCP.exe"),
   _T("plugin-container.exe")
 };
 
@@ -167,96 +169,226 @@ bool WptDriverCore::Startup() {
 /*-----------------------------------------------------------------------------
   Main thread for processing work
 -----------------------------------------------------------------------------*/
-void WptDriverCore::WorkThread(void) {
-  if (Startup()) {
-    Sleep(_settings._startup_delay * SECONDS_TO_MS);
-
-    WaitForSingleObject(_testing_mutex, INFINITE);
-    Init();  // do initialization and machine configuration
-    ReleaseMutex(_testing_mutex);
-
-    _status.Set(_T("Running..."));
+void WptDriverCore::WaitForStartup() {
+  LARGE_INTEGER start, freq, now;
+  double elapsed = 0;
+  QueryPerformanceFrequency(&freq);
+  QueryPerformanceCounter(&start);
+  while (!_exit && elapsed < _settings._startup_delay) {
+    Sleep(1000);
+    QueryPerformanceCounter(&now);
+    elapsed = (double)(now.QuadPart - start.QuadPart) / (double)freq.QuadPart;
   }
-  while (!_exit && !NeedsReboot()) {
-    WaitForSingleObject(_testing_mutex, INFINITE);
-    _status.Set(_T("Checking for software updates..."));
-    _installing = true;
-    _settings.UpdateSoftware();
-    _installing = false;
-    _status.Set(_T("Checking for work..."));
-    WptTestDriver test(_settings._timeout * SECONDS_TO_MS, has_gpu_);
-    if (_webpagetest.GetTest(test)) {
-      PreTest();
-      test._run = test._specific_run ? test._specific_run : 1;
-      _status.Set(_T("Starting test..."));
-      if (_settings.SetBrowser(test._browser, test._browser_url,
-                               test._browser_md5, test._client)) {
-        CString profiles_dir = _settings._browser._profiles;
-        if (profiles_dir.GetLength())
-          DeleteDirectory(profiles_dir, false);
-        WebBrowser browser(_settings, test, _status, _settings._browser, 
-                           _ipfw, _webpagetest.WptVersion());
-        if (SetupWebPageReplay(test, browser) &&
-            !TracerouteTest(test)) {
-          test._index = test._specific_index ? test._specific_index : 1;
-          for (test._run = 1; test._run <= test._runs; test._run++) {
-            test._run_error.Empty();
-            test._run = test._specific_run ? test._specific_run : test._run;
-            test._clear_cache = true;
-            bool ok = BrowserTest(test, browser);
-            if (!test._fv_only) {
-              test._clear_cache = false;
-              if (ok) {
-                test._run_error.Empty();
-                BrowserTest(test, browser);
-              } else {
-                CStringA first_run_error = test._run_error;
-                if (!first_run_error.GetLength()) {
-                  int result = GetTestResult();
-                  if (result != 0 && result != 99999)
-                    first_run_error.Format(
-                        "Test run failed with result code %d", result);
-                }
-                test._run_error =
-                    CStringA("Skipped repeat view, first view failed: ") +
-                    first_run_error;
-                _webpagetest.UploadIncrementalResults(test);
-              }
-            }
-            if (test._specific_run)
-              break;
-            else if (test._discard > 0)
-              test._discard--;
-            else
-              test._index++;
-          }
+
+  // Now wait up to 10 minutes for the CPU to go idle (no single core over 20%)
+  QueryPerformanceCounter(&start);
+  elapsed = 0;
+  bool is_idle = false;
+  double target_cpu = 20.0;
+  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  if (sysinfo.dwNumberOfProcessors > 1)
+    target_cpu = target_cpu / (double)sysinfo.dwNumberOfProcessors;
+  ULARGE_INTEGER last_k, last_u, last_i;
+  FILETIME idle_time, kernel_time, user_time;
+  if (GetSystemTimes(&idle_time, &kernel_time, &user_time)) {
+    _status.Set(_T("Waiting for the CPU to go idle..."));
+    last_k.LowPart = kernel_time.dwLowDateTime;
+    last_k.HighPart = kernel_time.dwHighDateTime;
+    last_u.LowPart = user_time.dwLowDateTime;
+    last_u.HighPart = user_time.dwHighDateTime;
+    last_i.LowPart = idle_time.dwLowDateTime;
+    last_i.HighPart = idle_time.dwHighDateTime;
+    while (!_exit && elapsed < 600 && !is_idle) {
+      Sleep(1000);
+      QueryPerformanceCounter(&now);
+      elapsed = (double)(now.QuadPart - start.QuadPart) / (double)freq.QuadPart;
+      if (GetSystemTimes(&idle_time, &kernel_time, &user_time)) {
+        ULARGE_INTEGER k, u, i;
+        k.LowPart = kernel_time.dwLowDateTime;
+        k.HighPart = kernel_time.dwHighDateTime;
+        u.LowPart = user_time.dwLowDateTime;
+        u.HighPart = user_time.dwHighDateTime;
+        i.LowPart = idle_time.dwLowDateTime;
+        i.HighPart = idle_time.dwHighDateTime;
+        __int64 idle = i.QuadPart - last_i.QuadPart;
+        __int64 kernel = k.QuadPart - last_k.QuadPart;
+        __int64 user = u.QuadPart - last_u.QuadPart;
+        if (kernel || user) {
+          double cpu_utilization = (((double)(kernel + user - idle) * 100.0) / (double)(kernel + user));
+          _status.Set(_T("Waiting for the CPU to go idle - %0.2f%%, target %0.2F%%"), cpu_utilization, target_cpu);
+          if (cpu_utilization < target_cpu)
+            is_idle = true;
         }
-        test._run = test._specific_run ? test._specific_run : test._runs;
-        if (profiles_dir.GetLength())
-          DeleteDirectory(profiles_dir, false);
-      } else {
-        test._test_error = test._run_error =
-            CStringA("Invalid Browser Selected: ") + CT2A(test._browser);
-      }
-      bool uploaded = false;
-      for (int count = 0; count < UPLOAD_RETRY_COUNT && !uploaded;count++ ) {
-        uploaded = _webpagetest.TestDone(test);
-        if( !uploaded )
-          Sleep(UPLOAD_RETRY_DELAY * SECONDS_TO_MS);
-      }
-      PostTest();
-      ReleaseMutex(_testing_mutex);
-    } else {
-      ReleaseMutex(_testing_mutex);
-      _status.Set(_T("Waiting for work..."));
-      int delay = _settings._polling_delay * SECONDS_TO_MS;
-      while (!_exit && delay > 0) {
-        Sleep(100);
-        delay -= 100;
+        last_i.QuadPart = i.QuadPart;
+        last_k.QuadPart = k.QuadPart;
+        last_u.QuadPart = u.QuadPart;
       }
     }
+    _status.Set(_T("Continuing startup..."));
   }
+}
+
+/*-----------------------------------------------------------------------------
+  Main thread for processing work
+-----------------------------------------------------------------------------*/
+void WptDriverCore::WorkThread(void) {
+  if (Startup()) {
+    #ifndef DEBUG
+    WaitForStartup();
+    #endif
+
+    if (!_exit) {
+      WaitForSingleObject(_testing_mutex, INFINITE);
+      _status.Set(_T("Initializing..."));
+      Init();  // do initialization and machine configuration
+      _status.Set(_T("Checking for software updates..."));
+      _installing = true;
+      bool ok = false;
+      while (!_exit && !ok) {
+        ok = _settings.UpdateSoftware(true);
+        if (!ok) {
+          _status.Set(_T("Software update failed, waiting 5 minutes and trying again..."));
+          for (int count = 0; count < 300 && !_exit; count++)
+            Sleep(1000);
+        }
+      }
+      _installing = false;
+      ReleaseMutex(_testing_mutex);
+
+      _status.Set(_T("Running..."));
+    }
+  }
+  while (!_exit && !NeedsReboot()) {
+    if (_settings.CheckBrowsers()) {
+      WaitForSingleObject(_testing_mutex, INFINITE);
+      if (ScreenCaptureAvailable()) {
+        _status.Set(_T("Checking for work..."));
+        WptTestDriver test(_settings._timeout * SECONDS_TO_MS, has_gpu_);
+        if (_webpagetest.GetTest(test)) {
+          if (!test._software_update_url.IsEmpty())
+            _settings._software_update.SetSoftwareUrl(test._software_update_url);
+          PreTest();
+          test._run = test._specific_run ? test._specific_run : 1;
+          _status.Set(_T("Starting test..."));
+          if (_settings.SetBrowser(test._browser, test._browser_url,
+                                   test._browser_md5, test._client)) {
+            CString profiles_dir = _settings._browser._profiles;
+            if (profiles_dir.GetLength())
+              DeleteDirectory(profiles_dir, false);
+            WebBrowser browser(_settings, test, _status, _settings._browser, 
+                               _ipfw, _shaper, _webpagetest.WptVersion());
+            if (SetupWebPageReplay(test, browser) &&
+                !TracerouteTest(test)) {
+              test._index = test._specific_index ? test._specific_index : 1;
+              for (test._run = 1; test._run <= test._runs; test._run++) {
+                test._run_error.Empty();
+                test._run = test._specific_run ? test._specific_run : test._run;
+                test._clear_cache = true;
+                bool ok = BrowserTest(test, browser);
+                if (!test._fv_only) {
+                  test._clear_cache = false;
+                  _webpagetest.StartTestRun(test);
+                  if (ok) {
+                    test._run_error.Empty();
+                    BrowserTest(test, browser);
+                  } else {
+                    CStringA first_run_error = test._run_error;
+                    if (!first_run_error.GetLength()) {
+                      int result = g_shared->TestResult();
+                      if (result != 0 && result != 99999)
+                        first_run_error.Format(
+                            "Test run failed with result code %d", result);
+                    }
+                    test._run_error =
+                        CStringA("Skipped repeat view, first view failed: ") +
+                        first_run_error;
+                    _webpagetest.UploadIncrementalResults(test);
+                  }
+                }
+                if (test._specific_run)
+                  break;
+                else if (test._discard > 0)
+                  test._discard--;
+                else
+                  test._index++;
+              }
+            }
+            test._run = test._specific_run ? test._specific_run : test._runs;
+            if (profiles_dir.GetLength())
+              DeleteDirectory(profiles_dir, false);
+          } else {
+            test._test_error = test._run_error =
+                CStringA("Invalid Browser Selected: ") + CT2A(test._browser);
+          }
+          bool uploaded = false;
+          for (int count = 0; count < UPLOAD_RETRY_COUNT && !uploaded;count++ ) {
+            uploaded = _webpagetest.TestDone(test);
+            if( !uploaded )
+              Sleep(UPLOAD_RETRY_DELAY * SECONDS_TO_MS);
+          }
+          PostTest();
+          ReleaseMutex(_testing_mutex);
+        } else {
+          // Launch and exit any browsers that need their state cleared
+          ReleaseMutex(_testing_mutex);
+          ResetBrowsers();
+          _status.Set(_T("Checking for software updates..."));
+          _installing = true;
+          _settings.UpdateSoftware();
+          _installing = false;
+          _status.Set(_T("Waiting for work..."));
+          int delay = ((rand() % 5000) - 2500) + (_settings._polling_delay * SECONDS_TO_MS);
+          while (!_exit && delay > 0) {
+            Sleep(100);
+            delay -= 100;
+          }
+        }
+      } else {
+        _status.Set(_T("Screen capture is unavailable, Rebooting..."));
+        Reboot();
+        int delay = 30 * SECONDS_TO_MS;
+        while (!_exit && delay > 0) {
+          Sleep(100);
+          delay -= 100;
+        }
+      }
+    } else {
+      // Wait 5 minutes before trying again
+      for (int count = 0; count < 300 && !_exit; count++)
+        Sleep(1000);
+    }
+  }
+  _status.Set(_T("Cleaning up..."));
+  ResetBrowsers();
   Cleanup();
+}
+
+/*-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------*/
+void WptDriverCore::ResetBrowsers() {
+  if (!reset_browsers.IsEmpty()) {
+    WaitForSingleObject(_testing_mutex, INFINITE);
+    while (!reset_browsers.IsEmpty()) {
+      CString exe = reset_browsers.RemoveHead();
+      HANDLE process = NULL;
+      PROCESS_INFORMATION pi;
+      STARTUPINFO si;
+      memset( &si, 0, sizeof(si) );
+      si.cb = sizeof(si);
+      si.dwFlags = STARTF_USESHOWWINDOW;
+      si.wShowWindow = SW_MINIMIZE;
+      if (CreateProcess(NULL, (LPTSTR)(LPCTSTR)exe, 0, 0, FALSE, 
+                        NORMAL_PRIORITY_CLASS , 0, NULL, &si, &pi)) {
+        WaitForInputIdle(pi.hProcess, 10000);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+      }
+      Sleep(5000);
+      TerminateProcessesByName(PathFindFileName((LPCTSTR)exe));
+    }
+    ReleaseMutex(_testing_mutex);
+  }
 }
 
 /*-----------------------------------------------------------------------------
@@ -288,10 +420,10 @@ bool WptDriverCore::TracerouteTest(WptTestDriver& test) {
 bool WptDriverCore::BrowserTest(WptTestDriver& test, WebBrowser &browser) {
   bool ret = false;
 
-  WptTrace(loglevel::kFunction,_T("[wptdriver] WptDriverCore::BrowserTest\n"));
+  ATLTRACE("[wptdriver] WptDriverCore::BrowserTest");
 
   test._run_error.Empty();
-  ResetTestResult();
+  g_shared->ResetTestResult();
   test.SetFileBase();
   if (test._clear_cache) {
     FlushDNS();
@@ -300,20 +432,43 @@ bool WptDriverCore::BrowserTest(WptTestDriver& test, WebBrowser &browser) {
 
   SetCursorPos(0,0);
   ShowCursor(FALSE);
-  ret = browser.RunAndWait();
+  HANDLE browser_process = NULL;
+  ret = browser.RunAndWait(browser_process);
   ShowCursor(TRUE);
 
+  // See if we need to add the browser exe to the list of browsers
+  // we need to launch and kill.
+  if (!browser._browser_needs_reset.IsEmpty()) {
+    bool found = false;
+    if (!reset_browsers.IsEmpty()) {
+      POSITION pos = reset_browsers.GetHeadPosition();
+      while (pos) {
+        CString exe = reset_browsers.GetNext(pos);
+        if (exe == browser._browser_needs_reset) {
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found)
+      reset_browsers.AddTail(browser._browser_needs_reset);
+  }
+
   _webpagetest.UploadIncrementalResults(test);
+  if (browser_process) {
+    WaitForSingleObject(browser_process, 10000);
+    CloseHandle(browser_process);
+    browser_process = NULL;
+  }
   KillBrowsers();
 
   if (ret) {
-    int result = GetTestResult();
+    int result = g_shared->TestResult();
     if (result != 0 && result != 99999)
       ret = false;
   }
 
-  WptTrace(loglevel::kFunction, 
-            _T("[wptdriver] WptDriverCore::BrowserTest done\n"));
+  ATLTRACE("[wptdriver] WptDriverCore::BrowserTest done");
 
   return ret;
 }
@@ -357,10 +512,27 @@ void WptDriverCore::Init(void){
     lstrcpy(PathFindFileName(path), _T("wptbho.dll") );
     HMODULE bho = LoadLibrary(path);
     if (bho) {
+      HKEY hKey;
+      if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
+          _T("Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Ext"),
+          0, 0, 0, KEY_WRITE, 0, &hKey, 0) == ERROR_SUCCESS) {
+        DWORD val = 1;
+        RegSetValueEx(hKey, _T("IgnoreFrameApprovalCheck"), 0, REG_DWORD,
+                      (const LPBYTE)&val, sizeof(val));
+        RegCloseKey(hKey);
+      }
       DLLREG proc = (DLLREG)GetProcAddress(bho, "DllRegisterServer");
       if( proc )
         proc();
       FreeLibrary(bho);
+      if (RegCreateKeyEx(HKEY_CURRENT_USER,
+          _T("Software\\Microsoft\\Windows\\CurrentVersion\\Ext\\Settings\\{2B925455-8D0C-401F-AA4C-9336C2167F14}"),
+          0, 0, 0, KEY_WRITE, 0, &hKey, 0) == ERROR_SUCCESS) {
+        DWORD val = 0x400;
+        RegSetValueEx(hKey, _T("Flags"), 0, REG_DWORD,
+                      (const LPBYTE)&val, sizeof(val));
+        RegCloseKey(hKey);
+      }
     }
   }
 
@@ -432,6 +604,7 @@ void WptDriverCore::Init(void){
   Do our cleanup on exit
 -----------------------------------------------------------------------------*/
 void WptDriverCore::Cleanup(void){
+  PostTest();
   if (housekeeping_timer_) {
     DeleteTimerQueueTimer(NULL, housekeeping_timer_, NULL);
     housekeeping_timer_ = NULL;
@@ -833,98 +1006,12 @@ void WptDriverCore::PreTest() {
     if (process)
       CloseHandle(process);
   }
-
-  // Install a global appinit hook for wpthook (actual loading will be
-  // controlled by a shared memory state)
-  TCHAR path[MAX_PATH];
-  if (GetModuleFileName(NULL, path, _countof(path))) {
-    lstrcpy(PathFindFileName(path), _T("wptload.dll"));
-    TCHAR short_path[MAX_PATH];
-    if (GetShortPathName(path, short_path, _countof(short_path))) {
-      HKEY hKey;
-		  if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
-          _T("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"),
-          0, 0, 0, KEY_WRITE, 0, &hKey, 0) == ERROR_SUCCESS ) {
-			  DWORD val = 1;
-			  RegSetValueEx(hKey, _T("LoadAppInit_DLLs"), 0, REG_DWORD,
-                      (const LPBYTE)&val, sizeof(val));
-			  val = 0;
-			  RegSetValueEx(hKey, _T("RequireSignedAppInit_DLLs"), 0, REG_DWORD,
-                      (const LPBYTE)&val, sizeof(val));
-        LPTSTR dlls = GetAppInitString(short_path, false);
-        if (dlls) {
-			    RegSetValueEx(hKey, _T("AppInit_DLLs"), 0, REG_SZ,
-                        (const LPBYTE)dlls,
-                        (lstrlen(dlls) + 1) * sizeof(TCHAR));
-          free(dlls);
-        }
-        RegCloseKey(hKey);
-      }
-    }
-  }
-
-  // Install the 64-bit appinit hook
-  BOOL is64bit = FALSE;
-  if (IsWow64Process(GetCurrentProcess(), &is64bit) && is64bit) {
-    lstrcpy(PathFindFileName(path), _T("wptld64.dll"));
-    TCHAR short_path[MAX_PATH];
-    if (GetShortPathName(path, short_path, _countof(short_path))) {
-      HKEY hKey;
-		  if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
-          _T("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"),
-          0, 0, 0, KEY_WRITE | KEY_WOW64_64KEY, 0, &hKey, 0) == ERROR_SUCCESS ) {
-			  DWORD val = 1;
-			  RegSetValueEx(hKey, _T("LoadAppInit_DLLs"), 0, REG_DWORD,
-                      (const LPBYTE)&val, sizeof(val));
-			  val = 0;
-			  RegSetValueEx(hKey, _T("RequireSignedAppInit_DLLs"), 0, REG_DWORD,
-                      (const LPBYTE)&val, sizeof(val));
-        LPTSTR dlls = GetAppInitString(short_path, true);
-        if (dlls) {
-			    RegSetValueEx(hKey, _T("AppInit_DLLs"), 0, REG_SZ,
-                        (const LPBYTE)dlls,
-                        (lstrlen(dlls) + 1) * sizeof(TCHAR));
-          free(dlls);
-        }
-        RegCloseKey(hKey);
-      }
-    }
-  }
 }
 
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
 void WptDriverCore::PostTest() {
-  // Remove the AppInit dll
-  DWORD flags[2] = {0, KEY_WOW64_64KEY};
-  HKEY hKey;
-	if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
-      _T("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"),
-      0, 0, 0, KEY_WRITE, 0, &hKey, 0) == ERROR_SUCCESS ) {
-    LPTSTR dlls = GetAppInitString(NULL, false);
-    if (dlls) {
-			RegSetValueEx(hKey, _T("AppInit_DLLs"), 0, REG_SZ,
-                    (const LPBYTE)dlls,
-                    (lstrlen(dlls) + 1) * sizeof(TCHAR));
-      free(dlls);
-    }
-    RegCloseKey(hKey);
-  }
-  BOOL is64bit = FALSE;
-  if (IsWow64Process(GetCurrentProcess(), &is64bit) && is64bit) {
-	  if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
-        _T("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"),
-        0, 0, 0, KEY_WRITE | KEY_WOW64_64KEY, 0, &hKey, 0) == ERROR_SUCCESS ) {
-      LPTSTR dlls = GetAppInitString(NULL, true);
-      if (dlls) {
-			  RegSetValueEx(hKey, _T("AppInit_DLLs"), 0, REG_SZ,
-                      (const LPBYTE)dlls,
-                      (lstrlen(dlls) + 1) * sizeof(TCHAR));
-        free(dlls);
-      }
-      RegCloseKey(hKey);
-    }
-  }
+  ClearAppInitHooks();
 }
 
 /*-----------------------------------------------------------------------------
@@ -959,14 +1046,15 @@ LPTSTR WptDriverCore::GetAppInitString(LPCTSTR new_dll, bool is64bit) {
     memset(dlls, 0, len);
   }
 
-  // remove any occurences of wptload.dll and wptld64.dll from the list
+  // remove any occurences of wptload.dll, wptld64.dll and wptld64.dll from the list
   if (dlls && lstrlen(dlls)) {
     LPTSTR new_list = (LPTSTR)malloc(len);
     memset(new_list, 0, len);
     LPTSTR dll = _tcstok(dlls, _T(" ,"));
     while (dll) {
       if (lstrcmpi(PathFindFileName(dll), _T("wptload.dll")) &&
-          lstrcmpi(PathFindFileName(dll), _T("wptld64.dll"))) {
+          lstrcmpi(PathFindFileName(dll), _T("wptld64.dll")) &&
+          lstrcmpi(PathFindFileName(dll), _T("wptldr64.dll"))) {
         if (lstrlen(new_list))
           lstrcat(new_list, _T(","));
         lstrcat(new_list, dll);
@@ -1005,7 +1093,7 @@ bool WptDriverCore::NeedsReboot() {
     bool needs_reboot = false;
     if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE,
         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate"
-        L"\\Auto Update\\RebootRequired", 0, 0, &key)) {
+        L"\\Auto Update\\RebootRequired", 0, KEY_READ, &key)) {
       needs_reboot = true;
       RegCloseKey(key);
     }

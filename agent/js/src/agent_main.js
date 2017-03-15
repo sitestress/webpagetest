@@ -221,6 +221,17 @@ Agent.prototype.scheduleProcessDone_ = function(ipcMsg, job) {
         fs.unlinkSync(ipcMsg.traceFile);
       } catch(e) {}
     }
+    if (ipcMsg.lighthouseFile) {
+      try {
+        var buffer = fs.readFileSync(ipcMsg.lighthouseFile);
+        if (buffer) {
+          job.resultFiles.push(new wpt_client.ResultFile(
+              wpt_client.ResultFile.ResultType.GZIP,
+              'lighthouse.html.gz', 'application/x-gzip', buffer));
+        }
+        fs.unlinkSync(ipcMsg.lighthouseFile);
+      } catch(e) {}
+    }
     if (ipcMsg.userTimingFile) {
       try {
         var buffer = fs.readFileSync(ipcMsg.userTimingFile);
@@ -233,6 +244,7 @@ Agent.prototype.scheduleProcessDone_ = function(ipcMsg, job) {
       } catch(e) {}
     }
     if (ipcMsg.cpuSlicesFile) {
+      logger.debug("Processing CPU Slices file: " + ipcMsg.cpuSlicesFile);
       try {
         var buffer = fs.readFileSync(ipcMsg.cpuSlicesFile);
         if (buffer) {
@@ -243,7 +255,22 @@ Agent.prototype.scheduleProcessDone_ = function(ipcMsg, job) {
         fs.unlinkSync(ipcMsg.cpuSlicesFile);
       } catch(e) {}
     }
+    if (ipcMsg.scriptTimingFile) {
+      logger.debug("Processing Script Timing file: " + ipcMsg.scriptTimingFile);
+      try {
+        var buffer = fs.readFileSync(ipcMsg.scriptTimingFile);
+        if (buffer) {
+          job.resultFiles.push(new wpt_client.ResultFile(
+              wpt_client.ResultFile.ResultType.GZIP,
+              'script_timing.json.gz', 'application/x-gzip', buffer));
+        }
+        fs.unlinkSync(ipcMsg.scriptTimingFile);
+      } catch(e) {
+        logger.debug("Error Processing Script Timing file: " + ipcMsg.scriptTimingFile);
+      }
+    }
     if (ipcMsg.pcapSlicesFile) {
+      logger.debug("Processing PCAP Slices file: " + ipcMsg.pcapSlicesFile);
       try {
         var buffer = fs.readFileSync(ipcMsg.pcapSlicesFile);
         if (buffer) {
@@ -255,14 +282,39 @@ Agent.prototype.scheduleProcessDone_ = function(ipcMsg, job) {
       } catch(e) {}
     }
     if (ipcMsg.featureUsageFile) {
+      logger.debug("Processing Feature usage file: " + ipcMsg.featureUsageFile);
       try {
-        var buffer = fs.readFileSync(ipcMsg.pcapSlicesFile);
+        var buffer = fs.readFileSync(ipcMsg.featureUsageFile);
         if (buffer) {
           job.resultFiles.push(new wpt_client.ResultFile(
               wpt_client.ResultFile.ResultType.GZIP,
               'feature_usage.json.gz', 'application/x-gzip', buffer));
         }
-        fs.unlinkSync(ipcMsg.pcapSlicesFile);
+        fs.unlinkSync(ipcMsg.featureUsageFile);
+      } catch(e) {}
+    }
+    if (ipcMsg.interactiveFile) {
+      logger.debug("Processing interactive usage file: " + ipcMsg.interactiveFile);
+      try {
+        var buffer = fs.readFileSync(ipcMsg.interactiveFile);
+        if (buffer) {
+          job.resultFiles.push(new wpt_client.ResultFile(
+              wpt_client.ResultFile.ResultType.GZIP,
+              'interactive.json.gz', 'application/x-gzip', buffer));
+        }
+        fs.unlinkSync(ipcMsg.interactiveFile);
+      } catch(e) {}
+    }
+    if (ipcMsg.v8File) {
+      logger.debug("Processing v8 stats file: " + ipcMsg.v8File);
+      try {
+        var buffer = fs.readFileSync(ipcMsg.v8File);
+        if (buffer) {
+          job.resultFiles.push(new wpt_client.ResultFile(
+              wpt_client.ResultFile.ResultType.GZIP,
+              'v8stats.json.gz', 'application/x-gzip', buffer));
+        }
+        fs.unlinkSync(ipcMsg.v8File);
       } catch(e) {}
     }
     if (ipcMsg.screenshots && ipcMsg.screenshots.length > 0) {

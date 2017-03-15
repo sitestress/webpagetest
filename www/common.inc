@@ -42,7 +42,7 @@ if (function_exists('curl_init')) {
 } else
     $CURL_CONTEXT = false;
 
-if ($_SERVER["REMOTE_ADDR"] == '127.0.0.1' && isset($_REQUEST['addr'])) {
+if (isset($_SERVER["REMOTE_ADDR"]) && $_SERVER["REMOTE_ADDR"] == '127.0.0.1' && isset($_REQUEST['addr'])) {
   $_SERVER["REMOTE_ADDR"] = $_REQUEST['addr'];
 }
 if (function_exists('apache_request_headers')) {
@@ -59,6 +59,9 @@ if (isset($_SERVER["HTTP_X_FORWARDED_FOR"])) {
         $_SERVER["REMOTE_ADDR"] = $forwarded_ip;
   }
 }
+if (isset($_SERVER["HTTP_FASTLY_CLIENT_IP"]))
+  $_SERVER["REMOTE_ADDR"] = $_SERVER["HTTP_FASTLY_CLIENT_IP"];
+
 if (array_key_exists('HTTP_MOD_REWRITE', $_SERVER) && $_SERVER['HTTP_MOD_REWRITE'] == 'On') {
     define('FRIENDLY_URLS', true);
     define('VER_TIMELINE', '28/');       // version of the timeline javascript
@@ -70,14 +73,14 @@ if (array_key_exists('HTTP_MOD_REWRITE', $_SERVER) && $_SERVER['HTTP_MOD_REWRITE
 $userIsBot = false;
 if (array_key_exists('HTTP_USER_AGENT', $_SERVER) &&
     strlen($_SERVER['HTTP_USER_AGENT']) &&
-    preg_match('/robot|spider|crawler|indexer|WeSEE|Googlebot|^$/i', $_SERVER['HTTP_USER_AGENT']))
+    preg_match('/robot|spider|crawler|indexer|WeSEE|Googlebot|YandexBot|Twitterbot|SemrushBot|Slackbot|Slack-ImgProxy|bingbot|SEOdiver|EPiServer|^$/i', $_SERVER['HTTP_USER_AGENT']))
   $userIsBot = true;
 
 // constants
-define('VER_WEBPAGETEST', '2.19');   // webpagetest version
-define('VER_CSS', 68);           // version of the sitewide css file
+define('VER_WEBPAGETEST', '3.0');   // webpagetest version
+define('VER_CSS', 69);           // version of the sitewide css file
 define('VER_JS', 32);            // version of the sitewide javascript file
-define('VER_JS_TEST', 32);       // version of the javascript specific to the test pages
+define('VER_JS_TEST', 35);       // version of the javascript specific to the test pages
 define('VER_JS_RUNNING', 1);     // version of the javascript specific to the test running status page
 define('UNKNOWN_TIME', -1);      // Value used as a flag for an unknown time.
                                  // To find code that fails to check that a time
@@ -149,27 +152,45 @@ $user = NULL;
 $admin = false;
 $api_keys;
 if (is_dir('./forums') && (!array_key_exists('disableMybb', $settings) || !$settings['disableMybb'])) {
-    ob_start();
-    $supportsAuth = true;
+  ob_start();
+  $supportsAuth = true;
 
-    if (isset($_COOKIE['mybbuser'])) {
-        $dir = getcwd();
-        try {
-            define("IN_MYBB",1);
-            chdir('forums'); // path to MyBB
-            include './global.php';
-
-            $uid = $mybb->user['uid'];
-            $user = $mybb->user['username'];
-            if( $mybb->usergroup['cancp'] )
-                $admin = true;
-            unset($mybb);
-        }
-        catch(Exception $e) {
-        }
-        chdir($dir);
+  if (isset($_COOKIE['mybbuser'])) {
+    if (function_exists("apcu_fetch")) {
+      $userinfo = apcu_fetch("mybb-user-{$_COOKIE['mybbuser']}");
+      if (isset($userinfo) &&
+          is_array($userinfo) &&
+          isset($userinfo['uid']) &&
+          isset($userinfo['user']) &&
+          isset($userinfo['admin'])) {
+        $uid = $userinfo['uid'];
+        $user = $userinfo['user'];
+        $admin = $userinfo['admin'];
+      }
     }
-    ob_end_clean();
+    if (!isset($user)) {
+      $dir = getcwd();
+      try {
+          define("IN_MYBB",1);
+          chdir('forums'); // path to MyBB
+          include './global.php';
+
+          $uid = $mybb->user['uid'];
+          $user = $mybb->user['username'];
+          if( $mybb->usergroup['cancp'] )
+              $admin = true;
+          unset($mybb);
+      }
+      catch(Exception $e) {
+      }
+      chdir($dir);
+      if (function_exists('apcu_store')) {
+        $userinfo = array('uid' => $uid, 'user' => $user, 'admin' => $admin);
+        apcu_store("mybb-user-{$_COOKIE['mybbuser']}", $userinfo, 3600);
+      }
+    }
+  }
+  ob_end_clean();
 }
 
 if (!$admin && isset($_COOKIE['asid']) && isset($_COOKIE['google_id']) && isset($_COOKIE['google_email'])) {
@@ -236,7 +257,7 @@ if (strlen($id)) {
     $testPath = './' . GetTestPath($id);
     $test = array();
     if (is_file("$testPath/testinfo.ini")) {
-        $test = parse_ini_file("$testPath/testinfo.ini",true);
+        $test = @parse_ini_file("$testPath/testinfo.ini",true);
         if (!$userIsBot)
           touch("$testPath/testinfo.ini");
     }

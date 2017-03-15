@@ -1,6 +1,7 @@
 <?php
 require_once 'devtools.inc.php';
 require_once __DIR__ . '/include/TestPaths.php';
+require_once(__DIR__ . '/video/visualProgress.inc.php');
 
 /**
 * Load the page results directly from the results files
@@ -68,7 +69,7 @@ function loadPageRunData($testPath, $run, $cached, $options = null, $testInfo = 
  * @return array|null Associative array with data for the given run or null on failure
  */
 function loadPageStepData($localPaths, $runCompleted, $options = null, $testInfo = null) {
-  $cacheVer = 1;
+  $cacheVer = 6;
   $cacheFile = $localPaths->pageDataCacheFile($cacheVer);
   $ret = null;
   if (gz_is_file($cacheFile))
@@ -114,6 +115,28 @@ function loadPageStepData($localPaths, $runCompleted, $options = null, $testInfo
             $ret["custom"][] = $metric;
           }
         }
+      }
+      
+      // Load main-thread interactive windows if available
+      if (gz_is_file($localPaths->interactiveFile())) {
+        $interactive = json_decode(gz_file_get_contents($localPaths->interactiveFile()), true);
+        if (isset($interactive) && is_array($interactive) && count($interactive))
+          $ret['interactivePeriods'] = $interactive;
+      }
+      
+      // Load the diagnostic test timing information if available
+      if (gz_is_file($localPaths->testTimingFile())) {
+        $entries = array();
+        $lines = gz_file($localPaths->testTimingFile());
+        if (isset($lines) && is_array($lines) && count($lines)) {
+          foreach($lines as $line) {
+            $parts = explode('=', trim($line));
+            if (count($parts) >= 2 && strlen($parts[0]))
+              $entries[str_replace(' ', '', $parts[0])] = intval($parts[1]);
+          }
+        }
+        if (count($entries))
+          $ret['testTiming'] = $entries;
       }
 
       // see if we have CSI metrics to load
@@ -161,19 +184,26 @@ function loadPageStepData($localPaths, $runCompleted, $options = null, $testInfo
           }
         }
       }
-      require_once(__DIR__ . '/video/visualProgress.inc.php');
-      $progress = GetVisualProgressForStep($localPaths, $runCompleted, null, null, $startOffset);
-      if (isset($progress) && is_array($progress)) {
-        if (array_key_exists('SpeedIndex', $progress))
-          $ret['SpeedIndex'] = $progress['SpeedIndex'];
-        if (array_key_exists('visualComplete', $progress))
-          $ret['visualComplete'] = $progress['visualComplete'];
-        if (array_key_exists('startRender', $progress) && (!array_key_exists('render', $ret) || !$ret['render']))
-          $ret['render'] = $progress['startRender'];
-        if ((!array_key_exists('lastVisualChange', $ret) ||
-            !$ret['lastVisualChange']) &&
-          array_key_exists('visualComplete', $ret))
-          $ret['lastVisualChange'] = $ret['visualComplete'];
+      if (!isset($ret['SpeedIndex']) ||
+          !array_key_exists('render', $ret) || !$ret['render'] ||
+          !array_key_exists('lastVisualChange', $ret) || !$ret['lastVisualChange'] ||
+          !array_key_exists('visualComplete85', $ret) || !$ret['visualComplete85'] ||
+          !array_key_exists('visualComplete', $ret) || !$ret['visualComplete']) {
+        $progress = GetVisualProgressForStep($localPaths, $runCompleted, null, null, $startOffset);
+        if (isset($progress) && is_array($progress)) {
+          if (array_key_exists('SpeedIndex', $progress))
+            $ret['SpeedIndex'] = $progress['SpeedIndex'];
+          if (array_key_exists('visualComplete85', $progress))
+            $ret['visualComplete85'] = $progress['visualComplete85'];
+          if (array_key_exists('visualComplete', $progress))
+            $ret['visualComplete'] = $progress['visualComplete'];
+          if (array_key_exists('startRender', $progress) && (!array_key_exists('render', $ret) || !$ret['render']))
+            $ret['render'] = $progress['startRender'];
+          if ((!array_key_exists('lastVisualChange', $ret) ||
+              !$ret['lastVisualChange']) &&
+            array_key_exists('visualComplete', $ret))
+            $ret['lastVisualChange'] = $ret['visualComplete'];
+        }
       }
       // see if we need a custom Speed Index as well
       $end = null;
@@ -191,10 +221,13 @@ function loadPageStepData($localPaths, $runCompleted, $options = null, $testInfo
         $processing = GetDevToolsCPUTimeForStep($localPaths, $ret['fullyLoaded']);
         if (isset($processing) && is_array($processing) && count($processing)) {
           $ret['cpuTimes'] = $processing;
-          if (isset($ret['docTime']) && $ret['docTime']) {
-            $processing = GetDevToolsCPUTimeForStep($localPaths, $ret['docTime']);
-            if (isset($processing) && is_array($processing) && count($processing)) {
-              $ret['cpuTimesDoc'] = $processing;
+          // Create top-level metrics for each as well
+          foreach ($processing as $key => $value)
+            $ret["cpu.$key"] = $value;
+          if (isset($ret['docTime']) && $ret['docTime']) {    
+            $processing = GetDevToolsCPUTimeForStep($localPaths, $ret['docTime']);    
+            if (isset($processing) && is_array($processing) && count($processing)) {    
+              $ret['cpuTimesDoc'] = $processing;      
             }
           }
         }
@@ -225,6 +258,31 @@ function loadPageStepData($localPaths, $runCompleted, $options = null, $testInfo
         $priority_streams = json_decode(gz_file_get_contents($localPaths->priorityStreamsFile()), true);
         if (isset($priority_streams) && is_array($priority_streams) && count($priority_streams)) {
           $ret["priorityStreams"] = $priority_streams;
+        }
+      }
+      
+      // Calculate Time to Interactive if we have First Meaningful Paint and interactive Windows
+      if (isset($ret['interactivePeriods']) && is_array($ret['interactivePeriods']) && count($ret['interactivePeriods'])) {
+        $seek_start = null;
+        $TTI = null;
+        if (isset($ret['chromeUserTiming.firstMeaningfulPaint']) && $ret['chromeUserTiming.firstMeaningfulPaint'] > 0)
+          $seek_start = $ret['chromeUserTiming.firstMeaningfulPaint'];
+        elseif (isset($ret['chromeUserTiming.firstContentfulPaint']) && $ret['chromeUserTiming.firstContentfulPaint'] > 0)
+          $seek_start = $ret['chromeUserTiming.firstContentfulPaint'];
+        elseif (isset($ret['render']) && $ret['render'] > 0)
+          $seek_start = $ret['render'];
+        if (isset($seek_start)) 
+          $TTI = CalculateTimeToInteractive($localPaths, $seek_start, $ret['interactivePeriods'], $measurement_end);
+        if (isset($TTI) && $TTI > 0) {
+          $ret['TimeToInteractive'] = $TTI;
+        } else {
+          $measurement_end = 0;
+          foreach ($ret['interactivePeriods'] as $window) {
+            if ($window[1] > $measurement_end)
+              $measurement_end = $window[1];
+          }
+          if ($measurement_end > 0)
+            $ret['TTIMeasurementEnd'] = $measurement_end;
         }
       }
     }
@@ -293,6 +351,7 @@ function loadPageStepData($localPaths, $runCompleted, $options = null, $testInfo
         'domLoading',
         'domInteractive',
         'lastVisualChange',
+        'visualComplete',
         'server_rtt',
         'firstPaint');
       foreach ($times as $key) {
@@ -315,6 +374,13 @@ function loadPageStepData($localPaths, $runCompleted, $options = null, $testInfo
       gz_file_put_contents($cacheFile, json_encode($ret));
   }
 
+  if (isset($ret['testTiming']) &&
+      isset($testInfo['started']) &&
+      $testInfo['completed'] &&
+      $testInfo['completed'] > $testInfo['started']) {
+    $ret['testTiming']['AllRunsDuration'] = ($testInfo['completed'] - $testInfo['started']) * 1000;
+  }
+  
   return $ret;
 }
 
@@ -373,6 +439,7 @@ function loadPageData($file, $options = null)
                                 'minify_savings' => @(int)$fields[67],
                                 'image_total' => @(int)$fields[68],
                                 'image_savings' => @(int)$fields[69],
+                                'base_page_redirects' => @(int)$fields[70],
                                 'optimization_checked' => @(int)$fields[71],
                                 'aft' => @(int)$fields[72],
                                 'domElements' => @(int)$fields[73],
@@ -410,6 +477,10 @@ function loadPageData($file, $options = null)
                   $ret['browser_working_set_kb'] = $ret['browser_main_memory_kb'] + $ret['browser_other_private_memory_kb'];
                 if ((isset($fields[101]) && strlen(trim($fields[101])))) $ret['domInteractive'] = intval(trim($fields[101]));
                 if ((isset($fields[102]) && strlen(trim($fields[102])))) $ret['domLoading'] = intval(trim($fields[102]));
+                if ((isset($fields[103]) && strlen(trim($fields[103])))) $ret['base_page_ttfb'] = intval(trim($fields[103]));
+                if ((isset($fields[104]) && strlen(trim($fields[104])))) $ret['visualComplete'] = intval(trim($fields[104]));
+                if ((isset($fields[105]) && strlen(trim($fields[105])))) $ret['SpeedIndex'] = intval(trim($fields[105]));
+                if ((isset($fields[106]) && strlen(trim($fields[106])))) $ret['certificate_bytes'] = intval(trim($fields[106]));
                 
                 $ret['date'] = strtotime(trim($fields[0]) . ' ' . trim($fields[1]));
                 if (!strlen($ret['pageSpeedVersion']))
@@ -803,5 +874,91 @@ function ParseUserTiming($file) {
     }
   }
   return $user_timing;
+}
+
+/**
+* Time To Interactive: https://github.com/WPO-Foundation/webpagetest/blob/master/docs/Metrics/TimeToInteractive.md
+* 
+* @param mixed $localPaths
+* @param mixed $firstMeaningfulPaint
+* @param mixed $interactiveWindows
+*/
+function CalculateTimeToInteractive($localPaths, $firstMeaningfulPaint, $interactiveWindows, &$measurement_end) {
+  $TTI = null;
+  
+  // Start by filtering the interactive windows to only include 5 second windows that don't
+  // end before FMP.
+  $end = 0;
+  $iw = array();
+  foreach ($interactiveWindows as $window) {
+    $end = $window[1];
+    $duration = $window[1] - $window[0];
+    if ($end >= $firstMeaningfulPaint && $duration >= 5000)
+      $iw[] = $window;
+  }
+  
+  $rw = array();
+  if (count($iw)) {
+    // Find all of the request windows with 5 seconds of no more than 2 concurrent document requests
+    require_once(__DIR__ . '/object_detail.inc');
+    $requests = getRequestsForStep($localPaths, null, $has_secure_requests);
+    if (isset($requests) && is_array($requests) && count($requests)) {
+      // Build a list of start/end events for document requests
+      $re = array();
+      foreach ($requests as $request) {
+        if (isset($request['contentType']) &&
+            isset($request['load_start']) &&
+            $request['load_start'] >= 0 &&
+            isset($request['load_end']) &&
+            $request['load_end'] >= $firstMeaningfulPaint) {
+          $re[] = array('type' => 'start', 'time' => $request['load_start']);
+          $re[] = array('type' => 'end', 'time' => $request['load_end']);
+        }
+      }
+      
+      // Sort the events by time
+      if (count($re)) {
+        usort($re, function($a, $b) {return ($a['time'] > $b['time']) ? +1 : -1;});
+        // walk the list of events tracking the number of in-flight requests and log any windows > 5 seconds
+        $window_start = 0;
+        $in_flight = 0;
+        foreach ($re as $e) {
+          if ($e['type'] == 'start') {
+            $in_flight++;
+            if (isset($window_start) && $in_flight > 2) {
+              $window_end = $e['time'];
+              if ($window_end - $window_start >= 5000)
+                $rw[] = array($window_start, $window_end);
+              $window_start = null;
+            }
+          } else {
+            $in_flight--;
+            if (!isset($window_start) && $in_flight <= 2)
+              $window_start = $e['time'];
+          }
+        }
+        if (isset($window_start) && $end - $window_start >= 5000)
+          $rw[] = array($window_start, $end);
+      }
+    }
+  }
+  
+  // Find the first interactive window that also has at least a 5 second intersection with one of the request windows
+  if (count($rw)) {
+    $window = null;
+    foreach($iw as $i) {
+      foreach($rw as $r) {
+        $intersect = array(max($i[0], $r[0]), min($i[1], $r[1]));
+        if ($intersect[1] - $intersect[0] >= 5000) {
+          $window = $i;
+          break 2;
+        }
+      }
+    }
+    if (isset($window))
+      $TTI = max($firstMeaningfulPaint, $window[0]);
+  }
+  
+  return $TTI;
 }
 ?>

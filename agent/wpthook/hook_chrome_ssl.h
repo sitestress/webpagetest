@@ -28,19 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#ifdef _WIN64
-class TestState;
-class TrackSockets;
-class WptTestHook;
-class ChromeSSLHook
-{
-public:
-  ChromeSSLHook(TrackSockets& sockets, TestState& test_state, WptTestHook& test){}
-  ~ChromeSSLHook(){}
-  void Init(){}
-};
-#else
-#include "ncodehook/NCodeHookInstantiation.h"
+#include <stdint.h>
 
 class TestState;
 class TrackSockets;
@@ -73,7 +61,6 @@ private:
   TestState& test_state_;
   TrackSockets& sockets_;
   WptTestHook& test_;
-  NCodeHookIA32* hook_;
   CRITICAL_SECTION cs;
 
   PFN_SSL3_NEW              New_;
@@ -84,4 +71,3 @@ private:
   PFN_SSL3_READ_APP_DATA    ReadAppData_;
   PFN_SSL3_WRITE_APP_DATA   WriteAppData_;
 };
-#endif // _WIN64

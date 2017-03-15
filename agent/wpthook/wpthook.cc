@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
 #include "stdafx.h"
-#include "shared_mem.h"
 #include "wpthook.h"
 #include "window_messages.h"
+#include "MinHook.h"
 
 WptHook * global_hook = NULL;
 extern HINSTANCE global_dll_handle;
@@ -63,10 +63,12 @@ WptHook::WptHook(void):
   ,dns_(test_state_, test_)
   ,done_(false)
   ,test_server_(*this, test_, test_state_, requests_, trace_)
-  ,test_(*this, test_state_, shared_test_timeout)
+  ,test_(*this, test_state_, 120000)
   ,late_initialized_(false) {
 
-  file_base_ = shared_results_file_base;
+  test_._test_timeout = test_state_.shared_.TestTimeout();
+  test_._measurement_timeout = test_._test_timeout;
+  file_base_ = test_state_.shared_.ResultsFileBase();
   background_thread_started_ = CreateEvent(NULL, TRUE, FALSE, NULL);
   report_message_ = RegisterWindowMessage(_T("WPT Report Data"));
 
@@ -113,11 +115,15 @@ static unsigned __stdcall ThreadProc( void* arg ) {
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
 void WptHook::Init(){
-  WptTrace(loglevel::kFunction, _T("[wpthook] Init()\n"));
+  ATLTRACE("[wpthook] Init()");
 #ifdef DEBUG
   //MessageBox(NULL, L"Attach Debugger", L"Attach Debugger", MB_OK);
 #endif
   test_.LoadFromFile();
+
+  // Initialize the API hooking library
+  MH_Initialize();
+
   if (!test_state_.gdi_only_) {
     file_hook_.Init();
     winsock_hook_.Init();
@@ -132,9 +138,9 @@ void WptHook::Init(){
   if (background_thread_started_ &&
       WaitForSingleObject(background_thread_started_, INIT_TIMEOUT) 
       == WAIT_OBJECT_0) {
-    WptTrace(loglevel::kFunction, _T("[wpthook] Init() Completed\n"));
+    ATLTRACE("[wpthook] Init() Completed");
   } else {
-    WptTrace(loglevel::kFunction, _T("[wpthook] Init() Timed out\n"));
+    ATLTRACE("[wpthook] Init() Timed out");
   }
 }
 
@@ -223,14 +229,15 @@ void WptHook::OnReport() {
       results_.Save();
     test_.CollectDataDone();
     if (test_.Done()) {
+      ATLTRACE("[wpthook] - (%d) Shutting down...", GetCurrentThreadId());
       results_.Save();
       test_state_._exit = true;
+      ATLTRACE("[wpthook] - (%d) Stopping server...", GetCurrentThreadId());
       test_server_.Stop();
       done_ = true;
       if (test_state_._frame_window) {
-        WptTrace(loglevel::kTrace, 
-                  _T("[wpthook] - **** Exiting Hooked Browser\n"));
-        ::SendMessage(test_state_._frame_window,WM_CLOSE,0,0);
+        ATLTRACE("[wpthook] - **** Exiting Hooked Browser");
+        ::SendMessage(test_state_._frame_window, WM_CLOSE, 0, 0);
       }
     }
   }
@@ -297,7 +304,7 @@ static LRESULT CALLBACK WptHookWindowProc(HWND hwnd, UINT uMsg,
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
 void WptHook::BackgroundThread() {
-  WptTrace(loglevel::kFunction, _T("[wpthook] BackgroundThread()\n"));
+  ATLTRACE("[wpthook] BackgroundThread()");
 
   if (!test_state_.gdi_only_) {
     chrome_ssl_hook_.Init();
@@ -328,5 +335,5 @@ void WptHook::BackgroundThread() {
   }
 
   test_server_.Stop();
-  WptTrace(loglevel::kFunction, _T("[wpthook] BackgroundThread() Stopped\n"));
+  ATLTRACE("[wpthook] BackgroundThread() Stopped");
 }

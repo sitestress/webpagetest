@@ -257,7 +257,7 @@ function formatForMessage(command, args) {
  */
 exports.scheduleExec = function(app, command, args, options, timeout) {
   'use strict';
-  timeout = timeout || 40000;
+  timeout = timeout || 10000;
   var cmd = formatForMessage(command, args);
   return app.schedule(cmd, function() {
     logger.debug('Exec with timeout(%d): %s', timeout, cmd);

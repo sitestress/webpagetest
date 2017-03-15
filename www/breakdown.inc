@@ -7,7 +7,7 @@ if(extension_loaded('newrelic')) {
     newrelic_add_custom_tracer('getBreakdownCombined');
 }
 
-define('BREAKDOWN_CACHE_VERSION', 3);
+define('BREAKDOWN_CACHE_VERSION', 4);
 
 /**
 * Aggregate the individual requests by mime type
@@ -40,7 +40,7 @@ function getBreakdownForStep($localPaths, $rootUrlGenerator, &$requests) {
         // get all of the requests
         $secure = false;
         $haveLocations = false;
-        $requests = getRequestsForStep($localPaths, $rootUrlGenerator, $secure, $haveLocations, false);
+        $requests = getRequestsForStep($localPaths, $rootUrlGenerator, $secure);
         
         $breakdown = array();
         $mime_colors = MimeColors();
@@ -48,6 +48,7 @@ function getBreakdownForStep($localPaths, $rootUrlGenerator, &$requests) {
             $entry = array(
                 'color' => $color,
                 'bytes' => 0,
+                'bytesUncompressed' => 0,
                 'requests' => 0
                 );
             $breakdown["$contentType"] = $entry;
@@ -58,8 +59,10 @@ function getBreakdownForStep($localPaths, $rootUrlGenerator, &$requests) {
             $contentType = ContentType($request['contentType'], $request['url']);
             $object = strtolower($request['url']);
             if( strlen($contentType) && (stripos($object, 'favicon.ico') === FALSE) ) {
-                $breakdown[$contentType]['bytes'] += $request['bytesIn'];
-                $breakdown[$contentType]['requests']++;
+              $breakdown[$contentType]['bytes'] += $request['bytesIn'];
+              $breakdown[$contentType]['requests']++;
+              if (isset($request['objectSizeUncompressed']) && $request['objectSizeUncompressed'] > 0)
+                $breakdown[$contentType]['bytesUncompressed'] += $request['objectSizeUncompressed'];
             }
           }
         }
@@ -91,9 +94,11 @@ function getBreakdownCombined($id, $testPath, $run)
         if( !count($rvData) )
         {
             $rvData['bytes'] = 0;
+            $rvData['bytesUncompressed'] = 0;
             $rvData['requests'] = 0;
         }
         $combined[$type]['rvBytes'] = $rvData['bytes'];
+        $combined[$type]['rvBytesUncompressed'] = $rvData['bytesUncompressed'];
         $combined[$type]['rvRequests'] = $rvData['requests'];
     }
 
@@ -106,8 +111,10 @@ function getBreakdownCombined($id, $testPath, $run)
         {
             $fv = array();
             $fv['bytes'] = 0;
+            $fv['bytesUncompressed'] = 0;
             $fv['requests'] = 0;
             $fv['rvBytes'] = $data['bytes'];
+            $fv['rvBytesUncompressed'] = $data['bytesUncompressed'];
             $fv['rvRequests'] = $data['requests'];
             $combined[$type] = $fv;
         }

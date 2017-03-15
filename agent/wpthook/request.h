@@ -250,6 +250,28 @@ public:
   CStringA  initiator_detail_;
 };
 
+class ChunkTiming {
+public:
+  ChunkTiming():length_(0) {timestamp_.QuadPart = 0;}
+  ChunkTiming(size_t length):length_(length) {
+    QueryPerformanceCounter(&timestamp_);
+  }
+  ChunkTiming(size_t length, LARGE_INTEGER& timestamp):
+    length_(length) {
+    timestamp_.QuadPart = timestamp.QuadPart;
+  }
+  ChunkTiming(const ChunkTiming& src) {*this = src;}
+  ~ChunkTiming() {}
+  const ChunkTiming& operator=(const ChunkTiming&src) {
+    timestamp_.QuadPart = src.timestamp_.QuadPart;
+    length_ = src.length_;
+    return src;
+  }
+
+  LARGE_INTEGER timestamp_;
+  size_t        length_;
+};
+
 class Request {
 public:
   Request(TestState& test_state, DWORD socket_id, DWORD stream_id,
@@ -285,6 +307,7 @@ public:
   LARGE_INTEGER GetStartTime();
   bool GetExpiresRemaining(bool& expiration_set, int& seconds_remaining);
   ULONG GetPeerAddress();
+  CStringA GetChunkTimings();
 
   bool  _processed;
   bool  _reported;
@@ -320,11 +343,13 @@ public:
   bool _from_browser;
   bool _is_base_page;
   CStringA  rtt_;
+  int _certificate_bytes;
 
   // byte counts
   DWORD _bytes_in;
   DWORD _bytes_out;
   DWORD _object_size;
+  DWORD _uncompressed_size;
 
   // performance counter times
   LARGE_INTEGER _start;
@@ -339,6 +364,7 @@ public:
 
   OptimizationScores _scores;
   CAtlList<CustomRulesMatch>  _custom_rules_matches;
+  CAtlList<ChunkTiming> _chunk_timings;
 
 private:
   TestState&    _test_state;

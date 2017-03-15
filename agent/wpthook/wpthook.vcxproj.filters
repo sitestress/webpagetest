@@ -12,12 +12,6 @@
     <Filter Include="Third-Party">
       <UniqueIdentifier>{56e63e9d-1a75-439a-a7fd-5745b0b56f3e}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Third-Party\NCodeHook">
-      <UniqueIdentifier>{8895b285-595b-46b0-9e29-2becbc9105e8}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Third-Party\distorm">
-      <UniqueIdentifier>{df374626-a802-47b9-a3c7-f012594bbc0e}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Third-Party\CxImage">
       <UniqueIdentifier>{eabee810-0378-4f4d-9468-e494b1dd5ab0}</UniqueIdentifier>
     </Filter>
@@ -51,59 +45,20 @@
     <Filter Include="Third-Party\nghttp2">
       <UniqueIdentifier>{bd2f09c2-c8da-4a14-a5d5-1235a58ca441}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Third-Party\mozjpeg">
-      <UniqueIdentifier>{a8a7b766-a9f6-4269-9ecf-6a47702ec069}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Third-Party\winpcap">
       <UniqueIdentifier>{008d51b7-181c-4c6c-99d2-d1e795300ae7}</UniqueIdentifier>
     </Filter>
     <Filter Include="Third-Party\winpcap\pcap">
       <UniqueIdentifier>{31f31a0f-f1ec-4329-acab-a46bf2c9ee24}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Third-Party\brotli">
+      <UniqueIdentifier>{cdf6fa87-2189-4449-b484-721fb23c974c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Third-Party\minhook">
+      <UniqueIdentifier>{5f09aa85-e0af-4209-b3cd-9d533e89e490}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="NCodeHook\NCodeHook.h">
-      <Filter>Third-Party\NCodeHook</Filter>
-    </ClInclude>
-    <ClInclude Include="NCodeHook\NCodeHookInstantiation.h">
-      <Filter>Third-Party\NCodeHook</Filter>
-    </ClInclude>
-    <ClInclude Include="NCodeHook\NCodeHookItem.h">
-      <Filter>Third-Party\NCodeHook</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\config.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\decoder.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\instructions.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\insts.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\operands.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\prefix.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\textdefs.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\wstring.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\src\x86defs.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\include\distorm.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
-    <ClInclude Include="distorm\include\mnemonics.h">
-      <Filter>Third-Party\distorm</Filter>
-    </ClInclude>
     <ClInclude Include="cximage\stdint.h">
       <Filter>Third-Party\CxImage\Header Files</Filter>
     </ClInclude>
@@ -226,9 +181,6 @@
     </ClInclude>
     <ClInclude Include="nspr\prtypes.h">
       <Filter>Third-Party\nspr</Filter>
-    </ClInclude>
-    <ClInclude Include="wpthook_dll.h">
-      <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="cdn.h">
       <Filter>Source Files</Filter>
@@ -431,60 +383,6 @@
     <ClInclude Include="nghttp2\lib\includes\nghttp2\nghttp2.h">
       <Filter>Third-Party\nghttp2</Filter>
     </ClInclude>
-    <ClInclude Include="mozjpeg\jchuff.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jcmaster.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jconfig.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jconfigint.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jdct.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jdhuff.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jerror.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jinclude.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jmemsys.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jmorecfg.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jpeg_nbits_table.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jpegcomp.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jpegint.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jpeglib.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jsimd.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jsimddct.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\jversion.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
-    <ClInclude Include="mozjpeg\transupp.h">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClInclude>
     <ClInclude Include="ssl_stream.h">
       <Filter>Source Files</Filter>
     </ClInclude>
@@ -545,6 +443,27 @@
     <ClInclude Include="winpcap\Include\pcap\vlan.h">
       <Filter>Third-Party\winpcap\pcap</Filter>
     </ClInclude>
+    <ClInclude Include="minhook\src\buffer.h">
+      <Filter>Third-Party\minhook</Filter>
+    </ClInclude>
+    <ClInclude Include="minhook\src\trampoline.h">
+      <Filter>Third-Party\minhook</Filter>
+    </ClInclude>
+    <ClInclude Include="minhook\src\HDE\hde32.h">
+      <Filter>Third-Party\minhook</Filter>
+    </ClInclude>
+    <ClInclude Include="minhook\src\HDE\hde64.h">
+      <Filter>Third-Party\minhook</Filter>
+    </ClInclude>
+    <ClInclude Include="minhook\src\HDE\pstdint.h">
+      <Filter>Third-Party\minhook</Filter>
+    </ClInclude>
+    <ClInclude Include="minhook\src\HDE\table32.h">
+      <Filter>Third-Party\minhook</Filter>
+    </ClInclude>
+    <ClInclude Include="minhook\src\HDE\table64.h">
+      <Filter>Third-Party\minhook</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cc">
@@ -552,12 +471,6 @@
     </ClCompile>
     <ClCompile Include="wpthook.cc">
       <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="NCodeHook\NCodeHook.cpp">
-      <Filter>Third-Party\NCodeHook</Filter>
-    </ClCompile>
-    <ClCompile Include="NCodeHook\NCodeHookItem.cpp">
-      <Filter>Third-Party\NCodeHook</Filter>
     </ClCompile>
     <ClCompile Include="hook_winsock.cc">
       <Filter>Source Files</Filter>
@@ -793,36 +706,6 @@
     <ClCompile Include="png\pngwtran.c">
       <Filter>Third-Party\png</Filter>
     </ClCompile>
-    <ClCompile Include="distorm\src\decoder.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\x86defs.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\distorm.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\instructions.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\insts.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\include\mnemonics.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\operands.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\prefix.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\textdefs.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
-    <ClCompile Include="distorm\src\wstring.c">
-      <Filter>Third-Party\distorm</Filter>
-    </ClCompile>
     <ClCompile Include="..\wptdriver\util.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -895,162 +778,6 @@
     <ClCompile Include="nghttp2\lib\nghttp2_version.c">
       <Filter>Third-Party\nghttp2</Filter>
     </ClCompile>
-    <ClCompile Include="mozjpeg\jaricom.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcapimin.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcapistd.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jccoefct.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jccolor.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcdctmgr.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcext.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jchuff.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcinit.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcmainct.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcmarker.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcmaster.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcomapi.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcparam.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcphuff.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcprepct.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jctrans.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdapimin.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdapistd.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdatadst.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdatadst-tj.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdatasrc.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdatasrc-tj.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdcoefct.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdcolor.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jddctmgr.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdhuff.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdinput.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdmainct.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdmarker.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdmaster.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdmerge.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdphuff.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdpostct.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdtrans.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jerror.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jfdctflt.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jfdctfst.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jfdctint.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jidctflt.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jidctfst.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jidctint.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jidctred.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jmemmgr.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jmemnobs.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jquant1.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jquant2.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jsimd_none.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\transupp.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jutils.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jcsample.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
-    <ClCompile Include="mozjpeg\jdsample.c">
-      <Filter>Third-Party\mozjpeg</Filter>
-    </ClCompile>
     <ClCompile Include="ssl_stream.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -1074,6 +801,36 @@
     </ClCompile>
     <ClCompile Include="..\wptdriver\zlib\gzclose.c">
       <Filter>Third-Party\zlib</Filter>
+    </ClCompile>
+    <ClCompile Include="brotli\dec\bit_reader.c">
+      <Filter>Third-Party\brotli</Filter>
+    </ClCompile>
+    <ClCompile Include="brotli\dec\decode.c">
+      <Filter>Third-Party\brotli</Filter>
+    </ClCompile>
+    <ClCompile Include="brotli\dec\huffman.c">
+      <Filter>Third-Party\brotli</Filter>
+    </ClCompile>
+    <ClCompile Include="brotli\dec\state.c">
+      <Filter>Third-Party\brotli</Filter>
+    </ClCompile>
+    <ClCompile Include="brotli\common\dictionary.c">
+      <Filter>Third-Party\brotli</Filter>
+    </ClCompile>
+    <ClCompile Include="minhook\src\buffer.c">
+      <Filter>Third-Party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="minhook\src\hook.c">
+      <Filter>Third-Party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="minhook\src\trampoline.c">
+      <Filter>Third-Party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="minhook\src\HDE\hde32.c">
+      <Filter>Third-Party\minhook</Filter>
+    </ClCompile>
+    <ClCompile Include="minhook\src\HDE\hde64.c">
+      <Filter>Third-Party\minhook</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -33,8 +33,10 @@ $page_description = "Comparison Test$testLabel.";
         <div class="page">
             <?php
             $navTabs = array(   'New Comparison' => FRIENDLY_URLS ? '/compare' : '/pss.php' );
-            if( array_key_exists('pssid', $_GET) && strlen($_GET['pssid']) )
-                $navTabs['Test Result'] = FRIENDLY_URLS ? "/result/{$_GET['pssid']}/" : "/results.php?test={$_GET['pssid']}";
+            if( array_key_exists('pssid', $_GET) && strlen($_GET['pssid']) ) {
+                $pssid = htmlspecialchars($_GET['pssid']);
+                $navTabs['Test Result'] = FRIENDLY_URLS ? "/result/$pssid/" : "/results.php?test=$pssid";
+            }
             $tab = 'New Comparison';
             include 'header.inc';
             ?>
@@ -265,10 +267,6 @@ $page_description = "Comparison Test$testLabel.";
                             echo "<input type=\"checkbox\" name=\"mobile\" id=\"mobile\" class=\"mobile\"$checked>";
                             ?>
                         </li>
-                        <li>
-                            <label for="wait">Expected Wait</label>
-                            <span id="wait"></span>
-                        </li>
                         <?php
                         if( !$supportsAuth || ($admin || strpos($_COOKIE['google_email'], '@google.com') !== false) )
                         {
@@ -477,40 +475,6 @@ function LoadLocations()
 {
     $locations = LoadLocationsIni();
     FilterLocations( $locations, 'pss' );
-    
-    // strip out any sensitive information
-    foreach( $locations as $index => &$loc )
-    {
-        if( isset($loc['browser']) )
-        {
-            $testCount = 16;
-            if (array_key_exists('relayServer', $loc)) {
-                $loc['backlog'] = 0;
-                $loc['avgTime'] = 30;
-                $loc['testers'] = 1;
-                $loc['wait'] = ceil(($testCount * 30) / 60);
-            } else {
-                GetPendingTests($index, $count, $avgTime);
-                if( !$avgTime )
-                    $avgTime = 30;  // default to 30 seconds if we don't have any history
-                $loc['backlog'] = $count;
-                $loc['avgTime'] = $avgTime;
-                $loc['testers'] = GetTesterCount($index);
-                $loc['wait'] = -1;
-                if( $loc['testers'] )
-                {
-                    if( $loc['testers'] > 1 )
-                        $testCount = 16;
-                    $loc['wait'] = ceil((($testCount + ($count / $loc['testers'])) * $avgTime) / 60);
-                }
-            }
-        }
-        
-        unset( $loc['localDir'] );
-        unset( $loc['key'] );
-        unset( $loc['remoteDir'] );
-        unset( $loc['relayKey'] );
-    }
     
     return $locations;
 }

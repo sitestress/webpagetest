@@ -43,19 +43,31 @@ class ResultProcessing {
         $steps++;
       }
     }
+    // Check for devtools steps
+    if (!$steps) {
+      if ($this->cached) {
+        $pattern ="/^" . $this->run . "_Cached_([0-9]+_)?devtools.json/";
+      } else {
+        $pattern ="/^" . $this->run . "_([0-9]+_)?devtools.json/";
+      }
+      foreach ($files as $file) {
+        if (preg_match($pattern, $file)) {
+          $steps++;
+        }
+      }
+    }
     return $steps;
   }
 
   public function postProcessRun() {
     $testerError = null;
     $secure = false;
-    $haveLocations = false;
     loadPageRunData($this->testRoot, $this->run, $this->cached);
     $steps = $this->countSteps();
     for ($i = 1; $i <= $steps; $i++) {
       $rootUrls = UrlGenerator::create(true, "", $this->id, $this->run, $this->cached, $i);
       $stepPaths = new TestPaths($this->testRoot, $this->run, $this->cached, $i);
-      $requests = getRequestsForStep($stepPaths, $rootUrls, $secure, $haveLocations, true, true);
+      $requests = getRequestsForStep($stepPaths, $rootUrls, $secure, true);
       if (isset($requests) && is_array($requests) && count($requests)) {
         getBreakdownForStep($stepPaths, $rootUrls, $requests);
       } else {

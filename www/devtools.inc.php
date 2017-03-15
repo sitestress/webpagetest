@@ -65,7 +65,7 @@ function GetDevToolsRequestsForStep($localPaths, &$requests, &$pageData) {
     $requests = null;
     $pageData = null;
     $startOffset = null;
-    $ver = 13;
+    $ver = 14;
     $ok = GetCachedDevToolsRequests($localPaths, $requests, $pageData, $ver);
     if (!$ok) {
       if (GetDevToolsEventsForStep(null, $localPaths, $events, $startOffset)) {
@@ -119,7 +119,7 @@ function GetDevToolsRequestsForStep($localPaths, &$requests, &$pageData) {
                       is_array($parts) &&
                       array_key_exists('host', $parts) &&
                       array_key_exists('path', $parts)) {
-                    $request = array();
+                    $request = array('request_id' => $rawRequest['id']);
                     $request['ip_addr'] = '';
                     $request['method'] = isset($rawRequest['method']) ? $rawRequest['method'] : '';
                     $request['host'] = '';
@@ -153,18 +153,25 @@ function GetDevToolsRequestsForStep($localPaths, &$requests, &$pageData) {
                     $request['bytesOut'] = isset($rawRequest['headers']) ? strlen(implode("\r\n", $rawRequest['headers'])) : 0;
                     $request['bytesIn'] = 0;
                     $request['objectSize'] = '';
-                    if (isset($rawRequest['bytesIn'])) {
+                    if (isset($rawRequest['bytesIn']))
                       $request['bytesIn'] = $rawRequest['bytesIn'];
-                    } elseif (isset($rawRequest['bytesInEncoded']) && $rawRequest['bytesInEncoded']) {
+                    if (isset($rawRequest['bytesInEncoded']) && $rawRequest['bytesInEncoded']) {
                       $request['objectSize'] = $rawRequest['bytesInEncoded'];
-                      $request['bytesIn'] = $rawRequest['bytesInEncoded'];
-                      if (isset($rawRequest['response']['headersText']))
+                      if ($rawRequest['bytesInEncoded'] > $request['bytesIn']) {
+                        $request['bytesIn'] = $rawRequest['bytesInEncoded'];
+                        if (isset($rawRequest['response']['headersText']))
                           $request['bytesIn'] += strlen($rawRequest['response']['headersText']);
-                    } elseif (isset($rawRequest['bytesInData'])) {
-                      $request['objectSize'] = $rawRequest['bytesInData'];
-                      $request['bytesIn'] = $rawRequest['bytesInData'];
-                      if (isset($rawRequest['response']['headersText']))
+                      }
+                    }
+                    if (isset($rawRequest['bytesInData'])) {
+                      if ($request['objectSize'] === '')
+                        $request['objectSize'] = $rawRequest['bytesInData'];
+                      if (!$request['bytesIn']) {
+                        $request['bytesIn'] = $rawRequest['bytesInData'];
+                        if (isset($rawRequest['response']['headersText']))
                           $request['bytesIn'] += strlen($rawRequest['response']['headersText']);
+                      }
+                      $request['objectSizeUncompressed'] = $rawRequest['bytesInData'];
                     }
                     $request['expires'] = '';
                     $request['cacheControl'] = '';
@@ -364,6 +371,7 @@ function GetDevToolsRequestsForStep($localPaths, &$requests, &$pageData) {
             $pageData['final_base_page_request_id'] = $rawPageData['mainResourceID'];
           }
         }
+        GetOptimizationResults($localPaths, $pageData, $requests);
         $ok = true;
       }
       if ($ok) {
@@ -371,6 +379,121 @@ function GetDevToolsRequestsForStep($localPaths, &$requests, &$pageData) {
       }
     }
     return $ok;
+}
+
+/**
+* Load any optimization results from the agents
+* 
+* @param mixed $localPaths
+* @param mixed $pageData
+* @param mixed $requests
+*/
+function GetOptimizationResults($localPaths, &$pageData, &$requests) {
+  $path = $localPaths->optimizationChecksFile();
+  if (gz_is_file($path)) {
+    $opt = json_decode(gz_file_get_contents($path), true);
+    if (isset($opt) && is_array($opt)) {
+      // Initialize the defaults
+      $pageData['score_cache'] = -1;
+      $pageData['score_cdn'] = -1;
+      $pageData['score_gzip'] = -1;
+      $pageData['score_cookies'] = -1;
+      $pageData['score_keep-alive'] = -1;
+      $pageData['score_minify'] = -1;
+      $pageData['score_combine'] = -1;
+      $pageData['score_compress'] = -1;
+      $pageData['score_etags'] = -1;
+      $pageData['score_progressive_jpeg'] = -1;
+      $pageData['gzip_total'] = 0;
+      $pageData['gzip_savings'] = 0;
+      $pageData['minify_total'] = -1;
+      $pageData['minify_savings'] = -1;
+      $pageData['image_total'] = 0;
+      $pageData['image_savings'] = 0;
+      $pageData['optimization_checked'] = 1;
+
+      // Track grades that are averages of the scores
+      $cache_count = 0;
+      $cache_total = 0;
+      $cdn_count = 0;
+      $cdn_total = 0;
+      $keep_alive_count = 0;
+      $keep_alive_total = 0;
+      $progressive_total_bytes = 0;
+      $progressive_bytes = 0;
+
+      // Attach the optimization check data to each request
+      foreach ($requests as &$request) {
+        if ($request['responseCode'] == 200) {
+          $id = $request['id'];
+          if (($pos = strpos($request['id'], '-')) !== false)
+            $id = substr($id, 0, $pos);
+          if (isset($opt[$id])) {
+            if (isset($opt[$id]['cache'])) {
+              $request['score_cache'] = $opt[$id]['cache']['score'];
+              $request['cache_time'] = $opt[$id]['cache']['time'];
+              $cache_count++;
+              $cache_total += $request['score_cache'];
+            }
+            if (isset($opt[$id]['cdn'])) {
+              $request['score_cdn'] = $opt[$id]['cdn']['score'];
+              $request['cdn_provider'] = $opt[$id]['cdn']['provider'];
+              $cdn_count++;
+              $cdn_total += $request['score_cdn'];
+            }
+            if (isset($opt[$id]['keep_alive'])) {
+              $request['score_keep-alive'] = $opt[$id]['keep_alive']['score'];
+              $keep_alive_count++;
+              $keep_alive_total += $request['score_keep-alive'];
+            }
+            if (isset($opt[$id]['gzip'])) {
+              $savings = $opt[$id]['gzip']['size'] - $opt[$id]['gzip']['target_size'];
+              $request['score_gzip'] = $opt[$id]['gzip']['score'];
+              $request['gzip_total'] = $opt[$id]['gzip']['size'];
+              $request['gzip_save'] = $savings;
+              $pageData['gzip_total'] += $opt[$id]['gzip']['size'];
+              $pageData['gzip_savings'] += $savings;
+            }
+            if (isset($opt[$id]['image'])) {
+              $savings = $opt[$id]['image']['size'] - $opt[$id]['image']['target_size'];
+              $request['score_compress'] = $opt[$id]['image']['score'];
+              $request['image_total'] = $opt[$id]['image']['size'];
+              $request['image_save'] = $savings;
+              $pageData['image_total'] += $opt[$id]['image']['size'];
+              $pageData['image_savings'] += $savings;
+            }
+            if (isset($opt[$id]['progressive'])) {
+              $size = $opt[$id]['progressive']['size'];
+              $request['jpeg_scan_count'] = $opt[$id]['progressive']['scan_count'];
+              $progressive_total_bytes += $size;
+              if ($request['jpeg_scan_count'] > 1) {
+                $request['score_progressive_jpeg'] = 100;
+                $progressive_bytes += $size;
+              } elseif ($size < 10240) {
+                $request['score_progressive_jpeg'] = 50;
+              } else {
+                $request['score_progressive_jpeg'] = 0;
+              }
+            }
+          }
+        }
+      }
+
+      // Figure out the page-level optimization scores
+      if ($cache_count > 0)
+        $pageData['score_cache'] = intval($cache_total / $cache_count);
+      if ($cdn_count > 0)
+        $pageData['score_cdn'] = intval($cdn_total / $cdn_count);
+      if ($keep_alive_count > 0)
+        $pageData['score_keep-alive'] = intval($keep_alive_total / $keep_alive_count);
+      if ($pageData['gzip_total'] > 0)
+        $pageData['score_gzip'] = 100 - intval($pageData['gzip_savings'] * 100 / $pageData['gzip_total']);
+      if ($pageData['image_total'] > 0)
+        $pageData['score_compress'] = 100 - intval($pageData['image_savings'] * 100 / $pageData['image_total']);
+      if ($progressive_total_bytes > 0)
+        $pageData['score_progressive_jpeg'] = intval($progressive_bytes * 100 / $progressive_total_bytes);
+    }
+  }
 }
 
 /**
@@ -730,29 +853,31 @@ function ParseDevToolsEvents(&$json, &$events, $filter, $removeParams, &$startOf
   // First go and match up the first net event with the matching timeline event
   // to sync the clocks (recent Chrome builds use different clocks)
   if ($hasNet && $hasTimeline) {
-    foreach ($messages as $message) {
-      if (is_array($message) &&
-          isset($message['method']) &&
-          isset($message['params']['timestamp']) &&
-          isset($message['params']['request']['url']) &&
-          strlen($message['params']['request']['url']) &&
-          $message['method'] == 'Network.requestWillBeSent') {
-        $firstNetEventTime = $message['params']['timestamp'] * 1000.0;
-        $firstNetEventURL = json_encode($message['params']['request']['url']);
-        break;
-      }
-    }
-    if (isset($firstNetEventTime) && isset($firstNetEventURL)) {
+    if (isset($messages) && is_array($messages) && count($messages)) {
       foreach ($messages as $message) {
         if (is_array($message) &&
             isset($message['method']) &&
-            isset($message['params']['record']['startTime']) &&
-            $message['method'] == 'Timeline.eventRecorded') {
-          $json = json_encode($message);
-          if (strpos($json, $firstNetEventURL) !== false) {
-            $timelineEventTime = $message['params']['record']['startTime'];
-            $firstEvent = $timelineEventTime;
-            break;
+            isset($message['params']['timestamp']) &&
+            isset($message['params']['request']['url']) &&
+            strlen($message['params']['request']['url']) &&
+            $message['method'] == 'Network.requestWillBeSent') {
+          $firstNetEventTime = $message['params']['timestamp'] * 1000.0;
+          $firstNetEventURL = json_encode($message['params']['request']['url']);
+          break;
+        }
+      }
+      if (isset($firstNetEventTime) && isset($firstNetEventURL)) {
+        foreach ($messages as $message) {
+          if (is_array($message) &&
+              isset($message['method']) &&
+              isset($message['params']['record']['startTime']) &&
+              $message['method'] == 'Timeline.eventRecorded') {
+            $json = json_encode($message);
+            if (strpos($json, $firstNetEventURL) !== false) {
+              $timelineEventTime = $message['params']['record']['startTime'];
+              $firstEvent = $timelineEventTime;
+              break;
+            }
           }
         }
       }
@@ -764,25 +889,29 @@ function ParseDevToolsEvents(&$json, &$events, $filter, $removeParams, &$startOf
   }
   
   if (!$firstEvent && $hasTimeline) {
-    foreach ($messages as $message) {
-      if (is_array($message) && isset($message['method'])) {
-        $eventTime = DevToolsEventTime($message);
-        $json = json_encode($message);
-        if (strpos($json, '"type":"Resource') !== false) {
-          $firstEvent = $eventTime;
-          break;
+    if (isset($messages) && is_array($messages) && count($messages)) {
+      foreach ($messages as $message) {
+        if (is_array($message) && isset($message['method'])) {
+          $eventTime = DevToolsEventTime($message);
+          $json = json_encode($message);
+          if (strpos($json, '"type":"Resource') !== false) {
+            $firstEvent = $eventTime;
+            break;
+          }
         }
       }
     }
   }
   if (!$firstEvent && $hasNet && isset($messages) && is_array($messages)) {
-    foreach ($messages as $message) {
-      if (is_array($message) && isset($message['method'])) {
-        $eventTime = DevToolsEventTime($message);
-        $method_class = substr($message['method'], 0, strpos($message['method'], '.'));
-        if ($eventTime && $method_class === 'Network') {
-          $firstEvent = $eventTime * 1000.0;
-          break;
+    if (isset($messages) && is_array($messages) && count($messages)) {
+      foreach ($messages as $message) {
+        if (is_array($message) && isset($message['method'])) {
+          $eventTime = DevToolsEventTime($message);
+          $method_class = substr($message['method'], 0, strpos($message['method'], '.'));
+          if ($eventTime && $method_class === 'Network') {
+            $firstEvent = $eventTime * 1000.0;
+            break;
+          }
         }
       }
     }
@@ -1044,6 +1173,7 @@ function DevToolsGetCPUSlicesForStep($localPaths) {
   $slices = null;
   $slices_file = $localPaths->devtoolsCPUTimelineFile() . ".gz";
   $trace_file = $localPaths->devtoolsTraceFile() . ".gz";
+  $script_timing = $localPaths->devtoolsScriptTimingFile() . ".gz";
   if (!GetSetting('disable_timeline_processing') && !is_file($slices_file) && is_file($trace_file) && is_file(__DIR__ . '/lib/trace/trace-parser.py')) {
     $script = realpath(__DIR__ . '/lib/trace/trace-parser.py');
     touch($slices_file);
@@ -1059,7 +1189,7 @@ function DevToolsGetCPUSlicesForStep($localPaths) {
     }
     $trace_file = realpath($trace_file);
 
-    $command = "python \"$script\" -t \"$trace_file\" -u \"$user_timing\" -c \"$slices_file\" 2>&1";
+    $command = "python \"$script\" -t \"$trace_file\" -u \"$user_timing\" -c \"$slices_file\" -j \"$script_timing\" 2>&1";
     exec($command, $output, $result);
     if (!is_file($slices_file))
       touch($slices_file);

@@ -29,24 +29,24 @@ foreach( $urls as $index => $url ) {
 }
 
 if (!$duplicates && !$headless) {
-    foreach( $urls as $index => $url )
+  foreach( $urls as $index => $url ) {
+    $url = trim($url);
+    if( strlen($url) )
     {
-        $url = trim($url);
-        if( strlen($url) )
-        {
-            $id = SubmitTest($url, $labels[$index], $key);
-            if( $id && strlen($id) )
-                $ids[] = $id;
-        }
+      $id = SubmitTest($url, $labels[$index], $key);
+      if( $id && strlen($id) )
+        $ids[] = $id;
     }
+  }
 
-    // now add the industry urls
-    foreach( $_REQUEST['t'] as $tid )
-    {
-        $tid = trim($tid);
-        if( strlen($tid) )
-            $ids[] = $tid;
+  // now add the industry urls
+  if (isset($_REQUEST['t']) && is_array($_REQUEST['t']) && count($_REQUEST['t'])) {
+    foreach( $_REQUEST['t'] as $tid ) {
+      $tid = trim($tid);
+      if( strlen($tid) )
+        $ids[] = $tid;
     }
+  }
 }
 
 // if we were successful, redirect to the result page
@@ -93,6 +93,8 @@ function SubmitTest($url, $label, $key)
     $testUrl .= 'f=xml&priority=2&runs=3&video=1&mv=1&fvonly=1&url=' . urlencode($url);
     if( $label && strlen($label) )
         $testUrl .= '&label=' . urlencode($label);
+    if (isset($_REQUEST['profile']) && strlen($_REQUEST['profile']) && is_file(__DIR__ . '/../settings/profiles.ini'))
+        $testUrl .= "&profile={$_REQUEST['profile']}";
     if( $ip )
         $testUrl .= "&addr=$ip";
     if( $uid )

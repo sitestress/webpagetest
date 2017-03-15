@@ -158,8 +158,8 @@ bool CIpfw::SetPipe(unsigned int num, unsigned long bandwidth,
           s->sopt_val = (void *)(s+1);
           memcpy(s->sopt_val, &cmd, sizeof(cmd));
           DWORD n;
-          if (DeviceIoControl(hDriver, IP_FW_SETSOCKOPT,s,size, s, size, &n, 
-                              NULL))
+          if (DeviceIoControl(hDriver, IP_FW_SETSOCKOPT,s,(DWORD)size, s,
+                              (DWORD)size, &n, NULL))
             ret = true;
           free(s);
         }
@@ -176,7 +176,7 @@ bool CIpfw::Execute(CString cmd) {
   bool ret = false;
   if (!ipfw_dir_.IsEmpty()) {
     CString command;
-    command.Format(_T("cmd /C \"ipfw.exe %s\""), (LPCTSTR)cmd);
+    command.Format(_T("\"%sipfw.exe\" %s"), (LPCTSTR)ipfw_dir_, (LPCTSTR)cmd);
     ATLTRACE(_T("Configuring dummynet: '%s'"), (LPCTSTR)command);
     ret = LaunchProcess(command, NULL, ipfw_dir_);
   }

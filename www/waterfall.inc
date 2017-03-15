@@ -12,36 +12,40 @@ require_once __DIR__ . '/include/TestPaths.php';
 function GetConnectionRows(&$requests, $show_labels = true) {
     $host_connections = array();  // group connections by host
     foreach ($requests as $request) {
-        if (isset($request['socket'])) {
-            $socket = $request['socket'];
-            $host = $request['host'];
-            if (!array_key_exists($host, $host_connections)) {
-                $host_connections[$host] = array();
-            }
-            if (!array_key_exists($socket, $host_connections[$host])) {
-                $host_connections[$host][$socket] = array(
-                    'is_connection' => true,
-                    'socket' => intval($socket),
-                    'host' => $host,
-                    'is_secure' => $request['is_secure'],
-                    'start' => $request['all_start'],
-                    'end' => $request['all_end'],
-                    'requests' => array($request)
-                    );
-            } else {
-                $host_connections[$host][$socket]['end'] = $request['all_end'];
-                $host_connections[$host][$socket]['requests'][] = $request;
-            }
+      if (isset($request['socket'])) {
+        $socket = $request['socket'];
+        $host = $request['host'];
+        if (!array_key_exists($host, $host_connections)) {
+          $host_connections[$host] = array();
         }
-    }
-    $rows = call_user_func_array('array_merge', $host_connections);
-    foreach (array_keys($rows) as $row_index) {
-        if ($show_labels) {
-            $rows[$row_index]['label'] = sprintf(
-                '%2d. %s', $row_index + 1, $rows[$row_index]['host']);
+        if (!array_key_exists($socket, $host_connections[$host])) {
+          $host_connections[$host][$socket] = array(
+              'is_connection' => true,
+              'socket' => intval($socket),
+              'host' => $host,
+              'is_secure' => $request['is_secure'],
+              'start' => $request['all_start'],
+              'end' => $request['all_end'],
+              'requests' => array($request)
+              );
         } else {
-            $rows[$row_index]['label'] = sprintf('%2d.', $row_index + 1);
+          $host_connections[$host][$socket]['end'] = $request['all_end'];
+          $host_connections[$host][$socket]['requests'][] = $request;
         }
+      }
+    }
+    if (count($host_connections)) {
+      $rows = call_user_func_array('array_merge', $host_connections);
+      foreach (array_keys($rows) as $row_index) {
+        if ($show_labels) {
+          $rows[$row_index]['label'] = sprintf(
+              '%2d. %s', $row_index + 1, $rows[$row_index]['host']);
+        } else {
+          $rows[$row_index]['label'] = sprintf('%2d.', $row_index + 1);
+        }
+      }
+    } else {
+      $rows = array();
     }
     return $rows;
 }
@@ -124,7 +128,7 @@ function GetWaterfallMap($rows, $url, $options, &$page_data) {
 *
 * @return resource
 */
-function GetWaterfallImage($rows, $url, $page_events, $options, &$page_data) {
+function GetWaterfallImage($rows, $url, $page_events, $options, $page_data) {
     $is_image_map = false;
     return _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, $page_data);
 }
@@ -134,13 +138,15 @@ function GetWaterfallImage($rows, $url, $page_events, $options, &$page_data) {
 *
 * @return resource
 */
-function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$page_data) {
+function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, $page_data) {
     global $settings;
     $is_mime = (bool)@$options['is_mime'];
-    $is_state = (bool)@$options['is_state'];
+    $is_state = (bool)@$options['is_state'] || $is_mime;
     $is_thumbnail = (bool)@$options['is_thumbnail'];
     $show_labels = (bool)@$options['show_labels'];
-
+    $include_js = (bool)@$options['include_js'];
+    
+    $top = 0;
     $row_count = count($rows);
     if (isset($options) && array_key_exists('rowcount', $options) && $options['rowcount'] > 0)
       $row_count = $options['rowcount'];
@@ -172,9 +178,17 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
     $stepId = array_key_exists('step_id', $options) ? (int) $options['step_id'] : 1;
     $isCached = array_key_exists('is_cached', $options) ? $options['is_cached'] : false;
     $localPaths = new TestPaths($options['path'], $options['run_id'], $isCached, $stepId);
+
+    if ($is_mime && !$is_thumbnail) {
+        $mime_y = 0;
+        $mime_height = (2 * $row_height) + 2;
+        $height += $mime_height;
+        $top += $mime_height;
+    }
+
     // Load the pcap-based bandwidth information if we have it
+    $max_bw = 0;
     if ($use_bw) {
-      $max_bw = 0;
       if (isset($options) && array_key_exists('max_bw', $options))
           $max_bw = $options['max_bw'];
       $pcap_slices = LoadPcapSlices($localPaths->pcapUtilizationFile(), $max_bw);
@@ -220,12 +234,18 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
         $height += $perf_height - 1;
       }
     }
-    
-    if ($is_mime) {
-        $mime_y = $height;
-        $height += (2 * $row_height) + 2;
+    // See if we have main-thread interactive data
+    if (!$is_image_map && gz_is_file($localPaths->interactiveFile())) {
+      $interactive = json_decode(gz_file_get_contents($localPaths->interactiveFile()), true);
+      if (isset($interactive)) {
+        if (is_array($interactive) && count($interactive) > 1) {
+          $height += $row_height;
+        } else {
+          unset($interactive);
+        }
+      }
     }
-
+    
     if ($show_labels) {
         if ($is_thumbnail) {
             $data_x = (int)($width * 0.25); // width of request labels (no borders)
@@ -242,13 +262,17 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
     if (@$_REQUEST['max'] > 0) {
         $max_ms = (int)($_REQUEST['max'] * 1000.0);
     } else {
-        // Include all page events and resource times in time scale.
+      // Include all page events and resource times in time scale.
+      if (isset($page_events) && is_array($page_events) && count($page_events)) {
         foreach ($page_events as $event) {
-            $max_ms = max($max_ms, is_array($event) ? $event[1] : $event);
+          $max_ms = max($max_ms, is_array($event) ? $event[1] : $event);
         }
+      }
+      if (isset($rows) && is_array($rows) && count($rows)) {
         foreach ($rows as $r) {
-            $max_ms = max($max_ms, $r['end']);
+          $max_ms = max($max_ms, $r['end']);
         }
+      }
     }
     $x_scaler = new XScaler($max_ms, $data_x + 1, $data_width);
 
@@ -265,44 +289,47 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
         $csi_info = TailorRtParamsForVisualization($csi_params, $filter);
     }
     // get any user timings
-    if (isset($page_data) && array_key_exists('userTime', $page_data)) {
-      foreach ($page_data as $key => $value) {
-        if (substr($key, 0, 9) == 'userTime.') {
-          $label = substr($key, 9);
-          if (!isset($user_times))
-            $user_times = array();
-          $user_times[$label] = $value;
+    if (!isset($options['show_user_timing']) || $options['show_user_timing']) {
+      if (isset($page_data) && array_key_exists('userTime', $page_data)) {
+        foreach ($page_data as $key => $value) {
+          if (substr($key, 0, 9) == 'userTime.') {
+            $label = substr($key, 9);
+            if (!isset($user_times))
+              $user_times = array();
+            $user_times[$label] = $value;
+          }
         }
+      }    
+      if (isset($csi_info)) {
+        if (!isset($user_times))
+          $user_times = array();
+        foreach ($csi_info as $key => $value)
+          $user_times[$key] = $value;
       }
-    }    
-    if (isset($csi_info)) {
-      if (!isset($user_times))
-        $user_times = array();
-      foreach ($csi_info as $key => $value)
-        $user_times[$key] = $value;
     }
 
     AddRowCoordinates($rows, $data_header_height + 1, $row_height);
     if ($is_image_map) {
-        $map = array();
-        AddMapUrl($map, 0, 0, $data_x, $data_header_height, $url);
+      $map = array();
+      AddMapUrl($map, 0, $top, $data_x, $data_header_height, $url);
+      if (isset($rows) && is_array($rows) && count($rows)) {
         foreach ($rows as $row) {
-            $is_connection = $row['is_connection'];
-            foreach ($row['requests'] as $request) {
-                if ($is_connection) {
-                    $x1 = $x_scaler($request['ttfb_start']);
-                    $x2 = $x_scaler($request['download_end']);
-                } else {
-                    $x1 = 0;
-                    $x2 = $width - 1;
-                }
-                AddMapRequest($map, $x1, $row['y1'], $x2, $row['y2'],
-                              $request);
+          $is_connection = $row['is_connection'];
+          foreach ($row['requests'] as $request) {
+            if ($is_connection) {
+              $x1 = $x_scaler($request['ttfb_start']);
+              $x2 = $x_scaler($request['download_end']);
+            } else {
+              $x1 = 0;
+              $x2 = $width - 1;
             }
+            AddMapRequest($map, $x1, $top + $row['y1'], $x2, $top + $row['y2'], $request);
+          }
         }
+      }
     } else {
         // Draw items needed if we're ACTUALLY drawing the chart.
-        $im = imagecreate($width, $height);
+        $im = imagecreatetruecolor($width, $height);
 
         // Allocate the colors we will need.
         $white = GetColor($im, 255, 255, 255);
@@ -408,13 +435,13 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
             $im, 0, 0, $width - 1, $height - 1, $bg_colors['default']);
         foreach ($rows as $row) {
             imagefilledrectangle(
-                $im, 0, $row['y1'], $width - 1, $row['y2'], $row['bg_color']);
+                $im, 0, $top + $row['y1'], $width - 1, $top + $row['y2'], $row['bg_color']);
         }
 
         // Draw borders.
-        imagerectangle($im, 0, 0, $width - 1, $data_height - 1, $border_color);
+        imagerectangle($im, 0, $top, $width - 1, $top + $data_height - 1, $border_color);
         // Draw left/right column divider.
-        imageline($im, $data_x, 0, $data_x, $data_height - 1, $border_color);
+        imageline($im, $data_x, $top, $data_x, $top + $data_height - 1, $border_color);
 
 
         // Draw performance backgrounds, labels, and borders.
@@ -446,6 +473,17 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
               DrawPerfBackground($im, $p, $data_x, $border_color, $bg_colors['alt']);
           }
         }
+        
+        if (isset($interactive)) {
+          $iTop = $height - $row_height - 1;
+          imagerectangle($im, 0, $iTop, $width - 1, $height - 1, $border_color);  // border
+          imageline($im, $data_x, $iTop, $data_x, $height - 1, $border_color);
+          if (!$is_thumbnail) {
+            $font_height = imagefontheight($font);
+            $label_y = $iTop + ($row_height / 2) - ($font_height / 2);
+            imagestring($im, $font, 50, $label_y, "Page is Interactive", $black);
+          }
+        }
 
         // Draw the time scale.
         // $max_ms, $width, $data_x, $black, $time_scale_color, $row_height, $data_height
@@ -462,15 +500,15 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
             // Draw the gridlines and labels.
             for ($ms = $interval; $ms < $max_ms; $ms += $interval) {
                 $x = $x_scaler($ms);
-                imageline($im, $x, 1 + $row_height,
-                          $x, $data_height - $row_height, $time_scale_color);
+                imageline($im, $x, 1 + $top + $row_height,
+                          $x, $top + $data_height - $row_height, $time_scale_color);
                 if (isset($perfs) && is_array($perfs)) {
-                    foreach ($perfs as $p) {
-                        if (array_key_exists('count', $p)) {
-                            // Add gridline to performance chart area.
-                            imageline($im, $x, $p['y1'] + 1, $x, $p['y2'] - 1, $time_scale_color);
-                        }
+                  foreach ($perfs as $p) {
+                    if (isset($p['count']) && isset($p['y1']) && isset($p['y2'])) {
+                      // Add gridline to performance chart area.
+                      imageline($im, $x, $p['y1'] + 1, $x, $p['y2'] - 1, $time_scale_color);
                     }
+                  }
                 }
                 if (isset($pcap_slices)) {
                   imageline($im, $x, $pcap_slices['y1'] + 1, $x, $pcap_slices['y2'] - 1, $time_scale_color);
@@ -482,9 +520,9 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
                 // Draw the time label.
                 if (!$is_thumbnail) {
                     $label = TimeScaleLabel($ms, $interval);
-                    DrawCenteredText($im, $x, 3,
+                    DrawCenteredText($im, $x, $top + 3,
                                      $label, $font, $font_width, $black);
-                    DrawCenteredText($im, $x, $data_height - $row_height + 1,
+                    DrawCenteredText($im, $x, $top + $data_height - $row_height + 1,
                                      $label, $font, $font_width, $black);
                 }
             }
@@ -504,11 +542,11 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
             foreach ($page_events as $event_name => &$event) {
                 $color = $event_colors[$event_name];
                 $endpoints = array(
-                    array('y1' => 1 + $row_height,
-                          'y2' => $data_height - $row_height));
+                    array('y1' => $top + 1 + $row_height,
+                          'y2' => $top + $data_height - $row_height - 1));
                 if (isset($perfs) && is_array($perfs)) {
                     foreach ($perfs as $p) {
-                        if (array_key_exists('count', $p)) {
+                        if (isset($p['count']) && isset($p['y1']) && isset($p['y2'])) {
                             // Add event lines in performance chart area.
                             $endpoints[] = array('y1' => $p['y1'] + 1,
                                                  'y2' => $p['y2'] - 1);
@@ -525,69 +563,71 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
                                          'y2' => $p['y2'] - 1);
                 }
                 foreach ($endpoints as $y1y2) {
-                    $y1 = $y1y2['y1'];
-                    $y2 = $y1y2['y2'];
-                    if (is_array($event)) {
-                        list($start_ms, $end_ms) = $event;
-                        if ($end_ms > 0) {
-                            $x1 = $x_scaler($start_ms);
-                            $x2 = $x_scaler($end_ms);
-                            if (!$is_thumbnail &&
-                                $x1 == $x2 && $x1 < $width - 3) {
-                                $x2 = $x1 + 1;
-                            }
-                            imagefilledrectangle($im, $x1, $y1, $x2, $y2,
-                                                 $color);
-                        }
-                    } else {
-                        $ms = $event;
-                        if ($ms > 0) {
-                            $x = $x_scaler($ms);
-                            imageline($im, $x, $y1, $x, $y2, $color);
-                            if (!$is_thumbnail && $x < $width - 3) {
-                                $x++;
-                                imageline($im, $x, $y1, $x, $y2, $color);
-                            }
-                        }
+                  $y1 = $y1y2['y1'];
+                  $y2 = $y1y2['y2'];
+                  if (is_array($event)) {
+                      list($start_ms, $end_ms) = $event;
+                      if ($end_ms > 0) {
+                          $x1 = $x_scaler($start_ms);
+                          $x2 = $x_scaler($end_ms);
+                          if (!$is_thumbnail &&
+                              $x1 == $x2 && $x1 < $width - 3) {
+                              $x2 = $x1 + 1;
+                          }
+                          imagefilledrectangle($im, $x1, $y1, $x2, $y2,
+                                               $color);
+                      }
+                  } else {
+                    $ms = $event;
+                    if ($ms > 0) {
+                      $x = $x_scaler($ms);
+                      imageline($im, $x, $y1, $x, $y2, $color);
+                      if (!$is_thumbnail && $x < $width - 3) {
+                        $x++;
+                        imageline($im, $x, $y1, $x, $y2, $color);
+                      }
                     }
+                  }
                 }
             }
 
             // Draw the performance data.
             if (isset($perfs) && is_array($perfs)) {
-                foreach ($perfs as $p) {
-                    $x1 = null;
-                    $y1 = null;
-                    foreach ($p['data'] as $ms => $value) {
-                        $x2 = $x_scaler($ms);
-                        $pmax = 0;
-                        if (array_key_exists('max', $p) && $p['max'] != 0) {
-                            $pmax = $p['max'];
-                        }
-                        $y2 = ($p['y1'] + $p['height'] - 2 -
-                               (int)((double)($p['height'] - 3) *
-                                     (double)$value / $pmax));
-                        if ($x2 <= $data_x) {
-                            $x2 = $data_x + 1;
-                        }
-                        if ($x2 >= $width - 1 && $x1 < $x2)  {
-                            // Point goes off the graph.
-                            // Interpolate the ending y-coordinate.
-                            $r = ($width - 2 - $x1) / ($x2 - $x1);
-                            $y2 = $y1 + (($y2 - $y1) * $r);
-                            $x2 = $width - 2;
-                        }
-                        if (isset($x1) && isset($y1)) {
-                            imageline($im, $x1, $y1, $x2, $y2, $p['color']);
-                        }
-                        if ($x2 >= ($width - 2)) {
-                            break;
-                        } else {
-                            $x1 = $x2;
-                            $y1 = $y2;
-                        }
+              foreach ($perfs as $p) {
+                $x1 = $x_scaler(0);
+                $y1 = null;
+                foreach ($p['data'] as $ms => $value) {
+                  $x2 = $x_scaler($ms);
+                  if (array_key_exists('max', $p) && $p['max'] != 0) {
+                    $y2 = ($p['y1'] + $p['height'] - 2 - (int)((double)($p['height'] - 3) * (double)$value / $p['max']));
+                    if ($x2 <= $data_x) {
+                      $x2 = $data_x + 1;
                     }
+                    if ($x2 >= $width - 1 && $x1 < $x2)  {
+                      // Point goes off the graph.
+                      // Interpolate the ending y-coordinate.
+                      $r = ($width - 2 - $x1) / ($x2 - $x1);
+                      $y2 = $y1 + (($y2 - $y1) * $r);
+                      $x2 = $width - 2;
+                    }
+                    if ($x2 > $x1 + 1) {
+                      // If the data spans multiple columns, draw a flat line at the
+                      // current value size it is really an average for the last time bucket.
+                      if (isset($y1))
+                        imageline($im, $x1, $y1, $x1, $y2, $p['color']);
+                      imageline($im, $x1, $y2, $x2, $y2, $p['color']);
+                    } else if (isset($x1) && isset($y1)) {
+                      imageline($im, $x1, $y1, $x2, $y2, $p['color']);
+                    }
+                    if ($x2 >= ($width - 2)) {
+                      break;
+                    } else {
+                      $x1 = $x2;
+                      $y1 = $y2;
+                    }
+                  }
                 }
+              }
             }
             
             // Draw the pcap-based bandwidth data
@@ -630,21 +670,23 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
                 $cpu_height = $cpu_bottom - $cpu_top + 1;
                 $slices = $cpu_slices['slices'][$p['thread']];
                 $slice_usecs = $cpu_slices['slice_usecs'];
-                $end_slice = intval($max_ms * 1000 / $slice_usecs);
-                if ($x1 < $x2) {
-                  for ($x = $x1; $x <= $x2; $x++) {
-                    $first_slice = intval(floor(((($x - $x1) / $data_width) * $end_slice)));
-                    $last_slice = intval(floor(((($x + 1- $x1) / $data_width) * $end_slice)));
-                    $cpu_times = AverageCpuSlices($slices, $first_slice, $last_slice, $slice_usecs, $cpu_slice_colors);
-                    if ($cpu_times) {
-                      // draw the line for this data point in the order the colors are defined
-                      $y = $cpu_bottom;
-                      foreach ($cpu_slice_colors as $type => $color) {
-                        if (isset($cpu_times[$type])) {
-                          $pixels = $cpu_height * $cpu_times[$type];
-                          $y2 = max($y - $pixels, $cpu_top);
-                          imageline($im, $x, $y, $x, $y2, $color);
-                          $y = $y2;
+                if ($slice_usecs > 0) {
+                  $end_slice = intval($max_ms * 1000 / $slice_usecs);
+                  if ($x1 < $x2) {
+                    for ($x = $x1; $x <= $x2; $x++) {
+                      $first_slice = intval(floor(((($x - $x1) / $data_width) * $end_slice)));
+                      $last_slice = intval(floor(((($x + 1- $x1) / $data_width) * $end_slice)));
+                      $cpu_times = AverageCpuSlices($slices, $first_slice, $last_slice, $slice_usecs, $cpu_slice_colors);
+                      if ($cpu_times) {
+                        // draw the line for this data point in the order the colors are defined
+                        $y = $cpu_bottom;
+                        foreach ($cpu_slice_colors as $type => $color) {
+                          if (isset($cpu_times[$type])) {
+                            $pixels = $cpu_height * $cpu_times[$type];
+                            $y2 = max($y - $pixels, $cpu_top);
+                            imageline($im, $x, $y, $x, $y2, $color);
+                            $y = $y2;
+                          }
                         }
                       }
                     }
@@ -653,18 +695,51 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
               }
             }
 
-            // Draw the csi metrics.
+            // Draw the page interactivity windows
+            if (isset($interactive) && isset($iTop) && $max_ms) {
+              $iBottom = $iTop + $row_height - 1;
+              $iTop += 1;
+              $iLeft = $data_x + 1;
+              $iRight = $width - 2;
+              $iWidth = $iRight - $iLeft;
+              $iScale = $iWidth / $max_ms;
+              $color_interactive = GetColor($im, 178, 234, 148);
+              $color_blocked = GetColor($im, 255, 82, 62);
+              // Default everything to not-interactive
+              imagefilledrectangle($im, $iLeft, $iTop, $iRight, $iBottom, $color_blocked);
+              // Draw the explicit windows from the data
+              $max_interactive = 0;
+              foreach ($interactive as $period) {
+                $l = $iLeft + intval(max(0, $period[0] * $iScale));
+                $r = $iLeft + intval(min($iWidth, $period[1] * $iScale));
+                $max_interactive = $r;
+                if ($r > $l)
+                  imagefilledrectangle($im, $l, $iTop, $r, $iBottom, $color_interactive);
+              }
+              // everything after the last window is interactive
+              if ($max_interactive < $iRight)
+                imagefilledrectangle($im, $max_interactive, $iTop, $iRight, $iBottom, $color_interactive);
+
+              // Everything before start render is N/A (blank)
+              if (isset($page_events['render'])) {
+                $r = $iLeft + intval(min($iWidth, $page_events['render'] * $iScale));
+                if ($r > $iLeft)
+                  imagefilledrectangle($im, $iLeft, $iTop, $r, $iBottom, $white);
+              }
+            }
+            
+            // Draw the user timings
             if (isset($user_times)) {
                 foreach ($user_times as $name => $value) {
                     if ($name != 'srt' && $value > 0 && $value <= $max_ms) {
                         $x = $x_scaler($value);
                         if (!$is_thumbnail) {
-                            $triangle_coords = array($x - 3, $row_height + 1,
-                                                     $x,     $row_height + 9,
-                                                     $x + 3, $row_height + 1);
+                            $triangle_coords = array($x - 3, $top + $row_height + 1,
+                                                     $x,     $top + $row_height + 9,
+                                                     $x + 3, $top + $row_height + 1);
                             imagefilledpolygon($im, $triangle_coords, 3, $event_colors['user']);
                         }
-                        imageline($im, $x, $row_height + 1, $x, $height - 1, $event_colors['user']);
+                        imageline($im, $x, $top + $row_height + 1, $x, $top + $height - 1, $event_colors['user']);
                     }
                 }
             }
@@ -674,7 +749,7 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
     // Draw the left-hand column labels.
     if (!$is_image_map) {
         // Draw document url.
-        $doc_url_y = intval(($data_header_height - $row_height) / 2);
+        $doc_url_y = $top + intval(($data_header_height - $row_height) / 2);
         if ($is_thumbnail) {
             $column_x = 1;
             ThumbnailText($im, $column_x, $doc_url_y, $data_x - 2, $row_height,
@@ -696,7 +771,7 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
             $is_secure = $row['is_secure'];
             $request_label = $row['label'];
 
-            $y = $row['y1'] + 1;
+            $y = $top + $row['y1'] + 1;
             if ($is_thumbnail) {
                 ThumbnailText($im, $column_x, $y, $data_x - 2, $row_height,
                               $request_label, $font_width, $border_color);
@@ -719,15 +794,18 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
         foreach ($rows as $row) {
             $is_connection = $row['is_connection'];
             foreach ($row['requests'] as $request) {
-                $y1 = $row['y1'];
-                $y2 = $row['y2'];
+                $y1 = $top + $row['y1'];
+                $y2 = $top + $row['y2'];
                 if (!$is_thumbnail && !$is_connection) {
-                    $x1 = $x_scaler($request['all_start']);
-                    $x2 = $x_scaler($request['all_end']);
-                    $bg_color = $row['bg_color'];
-                    DrawRequestTimeLabel(
-                        $im, $request, $x1, $y1, $x2, $y2, $data_x, $width - 1,
-                        $font, $font_width, $black, $bg_color);
+                  $label_x1 = $x_scaler($request['all_start']);
+                  $label_x2 = $x_scaler($request['all_end']);
+                  $label_y1 = $y1;
+                  $label_y2 = $y2;
+                  $bg_color = $row['bg_color'];
+                  DrawRequestTimeLabelBackground(
+                      $im, $request, $label_x1, $label_y1, $label_x2, $label_y2,
+                      $data_x, $width - 1,
+                      $font, $font_width, $black, $bg_color);
                 }
                 if (!$is_thumbnail) {
                     $y1 += 1;
@@ -737,10 +815,16 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
                     @$request['contentType'],
                     $is_thumbnail, $is_mime, $is_state, $request['url']);
                 $bars = GetBars($request, $x_scaler, $y1, $y2,
-                                $is_thumbnail, $is_mime, $is_state);
+                                $is_thumbnail, $is_mime, $is_state, $include_js);
                 foreach ($bars as $bar) {
-                    list($x1, $x2, $y1, $y2, $color) = $bar;
-                    DrawBar($im, $x1, $y1, $x2, $y2, $color);
+                    list($x1, $x2, $y1, $y2, $color, $shaded) = $bar;
+                    DrawBar($im, $x1, $y1, $x2, $y2, $color, $shaded);
+                }
+                if (!$is_thumbnail && !$is_connection) {
+                  DrawRequestTimeLabel(
+                      $im, $request, $label_x1, $label_y1, $label_x2, $label_y2,
+                      $data_x, $width - 1,
+                      $font, $font_width, $black, $bg_color);
                 }
             }
         }
@@ -750,31 +834,54 @@ function _GetMapOrImage($rows, $url, $page_events, $options, $is_image_map, &$pa
         foreach ($user_times as $name => $value) {
             if ($name != 'srt') {
                 $x = $x_scaler($value);
-                AddMapUserTime($map, $x - 3, $row_height + 1, $x + 3, $row_height + 9, "$name: " . number_format($value / 1000.0, 3) . 's');
+                AddMapUserTime($map, $x - 3, $top + $row_height + 1, $x + 3, $top + $row_height + 9, "$name: " . number_format($value / 1000.0, 3) . 's');
             }
         }
     }
 
     // Draw the MIME legend
-    if ($is_mime && !$is_image_map) {
+    if (!$is_thumbnail && $is_mime && !$is_image_map) {
+        $colors = GetRequestColors(null, false, false, true);
         if (!isset($mime_colors))
           $mime_colors = MimeColors();
         $mime_count = count($mime_colors);
+        if ($include_js)
+          $mime_count++;
+        $bar_labels = array('dns', 'connect', 'ssl');
+        $mime_count += count($bar_labels);
         $bar_width = $width / $mime_count;
         $x = 0;
-        $text_y = $mime_y + 2;
+        $text_y = $mime_y;
         $bar_y = $text_y + $row_height;
+        $bar_height = $row_height - 2;;
+        $short_height = max(2, intval($bar_height * 0.5));
+        $short_y1 = $bar_y + 1 + intval(($bar_height - $short_height) / 2);
+        $short_y2 = $short_y1 + $short_height - 1;
+        foreach($bar_labels as $bar_label) {
+            $text_x = $x + (($bar_width - $font_width * strlen($bar_label)) / 2);
+            DrawBar($im, $x + 2, $short_y1, $x + $bar_width - 4,
+                    $short_y2, $colors[$bar_label], true);
+            imagestring($im, $font, $text_x, $text_y + 1, $bar_label, $black);
+            $x += $bar_width;
+        }
         foreach ($mime_colors as $mime_type => $color) {
-            $text_x = $x + (($bar_width -
-                             $font_width * strlen($mime_type)) / 2);
+            $text_x = $x + (($bar_width - $font_width * strlen($mime_type)) / 2);
             DrawBar($im, $x + 2, $bar_y + 1, $x + $bar_width - 4,
-                    $bar_y + $row_height - 2, $color);
+                    $bar_y + $bar_height, $color, true);
             foreach ($color as &$col)
                 $col = min(255, ($col + ((255 - $col) * 0.65)));
             DrawBar($im, $x + 2, $bar_y + 1, $x + ($bar_width / 2),
-                    $bar_y + $row_height - 2, $color);
+                    $bar_y + $bar_height, $color, true);
             imagestring($im, $font, $text_x, $text_y + 1, $mime_type, $black);
             $x += $bar_width;
+        }
+        if ($include_js) {
+            $label = "JS Execution";
+            $text_x = $x + (($bar_width - $font_width * strlen($label)) / 2);
+            $color = $colors['js'];
+            DrawBar($im, $x + 2, $short_y1, $x + $bar_width - 4,
+                    $short_y2, $color, false);
+            imagestring($im, $font, $text_x, $text_y + 1, $label, $black);
         }
     }
 
@@ -857,7 +964,7 @@ class XScaler
 
 function AverageCpuSlices(&$slices, $first_slice, $last_slice, $slice_usecs, &$known_types) {
   $avg = null;
-  if ($last_slice >= $first_slice) {
+  if ($last_slice >= $first_slice && isset($slices) && is_array($slices)) {
     $valid = false;
     $totals = array();
     $total_time = ($last_slice - $first_slice + 1) * $slice_usecs;
@@ -890,11 +997,13 @@ function AverageCpuSlices(&$slices, $first_slice, $last_slice, $slice_usecs, &$k
 *
 */
 function AddRowCoordinates(&$rows, $y1, $row_height) {
+  if (isset($rows) && is_array($rows) && count($rows)) {
     foreach ($rows as &$r) {
-        $r['y1'] = $y1;
-        $r['y2'] = $y1 + $row_height - 1;
-        $y1 += $row_height;
+      $r['y1'] = $y1;
+      $r['y2'] = $y1 + $row_height - 1;
+      $y1 += $row_height;
     }
+  }
 }
 
 /* Add 'bg_color' to each row.
@@ -930,7 +1039,8 @@ function DrawPerfLabel($im, $key, $perf, $font, $label_color) {
   $x = $perf['x1'];
   $height = $perf['height'];
   $line_y = $perf['y1'] + ($height / 2) - 1;
-  imageline($im, $x + 10, $line_y, $x + 45, $line_y, $perf['color']);
+  if (isset($perf['color']))
+    imageline($im, $x + 10, $line_y, $x + 45, $line_y, $perf['color']);
 
   $label = $key;
   if ($key == 'cpu') {
@@ -1089,26 +1199,39 @@ function AddMapUserTime(&$map, $x1, $y1, $x2, $y2, $label) {
 * for the parts of a request.
 */
 function GetBars($request, $x_scaler, $y1, $y2,
-                 $is_thumbnail, $is_mime, $is_state) {
-    $bars = array();
-    $state_y1 = $y1;
-    $state_y2 = $y2;
-    if ($is_state) {
-        $bar_height = $y2 - $y1 + 1;
-        $state_height = max(2, intval($bar_height / 2));
-        $state_y1 += intval(($bar_height - $state_height) / 2);
-        $state_y2 = $state_y1 + $state_height - 1;
+                 $is_thumbnail, $is_mime, $is_state, $include_js) {
+  $bars = array();
+  $state_y1 = $y1;
+  $state_y2 = $y2;
+  if ($is_state) {
+    $bar_height = $y2 - $y1 + 1;
+    $state_height = max(2, intval($bar_height / 2));
+    $state_y1 += intval(($bar_height - $state_height) / 2);
+    $state_y2 = $state_y1 + $state_height - 1;
+  }
+  $state_keys = array('dns', 'connect', 'ssl');
+  // TODO(slamm): tweak minimum width of bars.
+  //  (!$is_mime && !$is_thumbnail) ? each bar at least 1px
+  //   ($is_mime && !$is_thumbnail) ? each bar group at least 1px
+  AddBarIfValid($bars, 'download', $request, $x_scaler, $y1, $y2);
+  AddBarIfValid($bars, 'ttfb',     $request, $x_scaler, $y1, $y2);
+  AddBarIfValid($bars, 'ssl',      $request, $x_scaler, $state_y1, $state_y2);
+  AddBarIfValid($bars, 'connect',  $request, $x_scaler, $state_y1, $state_y2);
+  AddBarIfValid($bars, 'dns',      $request, $x_scaler, $state_y1, $state_y2);
+  if (isset($request['js_timing']) && $include_js) {
+    $bar_height = $y2 - $y1 + 1;
+    $js_height = max(2, intval($bar_height * 0.5));
+    $js_y1 = $y1 + intval(($bar_height - $js_height) / 2);
+    $js_y2 = $js_y1 + $js_height - 1;
+    foreach($request['js_timing'] as $times) {
+      $bars[] = array(
+          $x_scaler($times[0]), $x_scaler($times[1]),
+          $js_y1, $js_y2,
+          $request['colors']['js'],
+          false);
     }
-    $state_keys = array('dns', 'connect', 'ssl');
-    // TODO(slamm): tweak minimum width of bars.
-    //  (!$is_mime && !$is_thumbnail) ? each bar at least 1px
-    //   ($is_mime && !$is_thumbnail) ? each bar group at least 1px
-    AddBarIfValid($bars, 'download', $request, $x_scaler, $y1, $y2);
-    AddBarIfValid($bars, 'ttfb',     $request, $x_scaler, $y1, $y2);
-    AddBarIfValid($bars, 'ssl',      $request, $x_scaler, $state_y1, $state_y2);
-    AddBarIfValid($bars, 'connect',  $request, $x_scaler, $state_y1, $state_y2);
-    AddBarIfValid($bars, 'dns',      $request, $x_scaler, $state_y1, $state_y2);
-    return $bars;
+  }
+  return $bars;
 }
 
 /**
@@ -1127,7 +1250,8 @@ function AddBarIfValid(&$bars, $key, $request, $x_scaler, $y1, $y2) {
             $x2,
             $y1,
             $y2,
-            $request['colors'][$key]
+            $request['colors'][$key],
+            true
             );
     }
 }
@@ -1136,11 +1260,11 @@ function AddBarIfValid(&$bars, $key, $request, $x_scaler, $y1, $y2) {
 * Insert an interactive waterfall into the current page
 * 
 */
-function InsertWaterfall($url, &$requests, $id, $run, $cached, &$page_data, $waterfall_options = '') {
+function InsertWaterfall($url, $requests, $id, $run, $cached, $page_data, $waterfall_options = '') {
   echo CreateWaterfallHtml($url, $requests, $id, $run, $cached, $page_data, $waterfall_options);
 }
 
-function CreateWaterfallHtml($url, &$requests, $id, $run, $cached, &$page_data, $waterfall_options = '', $step = 1) {
+function CreateWaterfallHtml($url, $requests, $id, $run, $cached, $page_data, $waterfall_options = '', $step = 1) {
     global $settings;
 
     // create the image map (this is for fallback when Javascript isn't enabled
@@ -1154,6 +1278,7 @@ function CreateWaterfallHtml($url, &$requests, $id, $run, $cached, &$page_data, 
         'is_cached' => @$_GET['cached'],
         'use_cpu' => true,
         'show_labels' => true,
+        'is_mime' => (bool)GetSetting('mime_waterfalls'),
         'width' => 930
         );
     $rows = GetRequestRows($requests, false);
@@ -1256,7 +1381,7 @@ function InsertMultiWaterfall(&$waterfalls, $waterfall_options) {
   foreach($waterfalls as $index => &$waterfall) {
     $test_path = './' . GetTestPath($waterfall['id']);
     $localPaths = new TestPaths($test_path, $waterfall['run'], $waterfall['cached'], $waterfall['step']);
-    $requests = getRequestsForStep($localPaths, null, $has_secure_requests, $has_locations, false, false);
+    $requests = getRequestsForStep($localPaths, null, $has_secure_requests, false);
     if (isset($requests) && is_array($requests)) {
       $count = count($requests);
       if ($count > $row_count)
@@ -1396,5 +1521,53 @@ function GetAverageSliceValue($slices, $start, $end) {
   }
   
   return $avg;
+}
+
+/**
+* Add the JS execution times to the requests
+* 
+* @param mixed $requests
+* @param mixed $script_timings_file
+*/
+
+function AddRequestScriptTimings(&$requests, $script_timings_file) {
+  $script_events = array('EvaluateScript', 
+                         'v8.compile',
+                         'FunctionCall',
+                         'GCEvent',
+                         'TimerFire',
+                         'EventDispatch',
+                         'TimerInstall',
+                         'TimerRemove',
+                         'XHRLoad',
+                         'XHRReadyStateChange',
+                         'MinorGC',
+                         'MajorGC',
+                         'FireAnimationFrame',
+                         'ThreadState::completeSweep',
+                         'Heap::collectGarbage',
+                         'ThreadState::performIdleLazySweep');
+  if (gz_is_file($script_timings_file)) {
+    $timings = json_decode(gz_file_get_contents($script_timings_file), true);
+    if (isset($timings) &&
+        is_array($timings) &&
+        isset($timings['main_thread']) &&
+        isset($timings[$timings['main_thread']]) &&
+        is_array($timings[$timings['main_thread']])) {
+      $js_timing = $timings[$timings['main_thread']];
+      foreach ($requests as &$request) {
+        if (isset($request['full_url']) &&
+            isset($js_timing[$request['full_url']])) {
+          $request['js_timing'] = array();
+          foreach ($script_events as $script_event) {
+            if (isset($js_timing[$request['full_url']][$script_event])) {
+              foreach($js_timing[$request['full_url']][$script_event] as $times)
+                $request['js_timing'][] = $times;
+            }
+          }
+        }
+      }
+    }
+  }
 }
 ?>

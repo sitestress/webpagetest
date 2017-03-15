@@ -121,6 +121,8 @@ CDN_PROVIDER cdnList[] = {
 	{".raxcdn.com", _T("Rackspace")},
 	{".unicorncdn.net", _T("UnicornCDN")},
 	{".optimalcdn.com", _T("Optimal CDN")},
+	{".hosting4cdn.com", _T("Hosting4CDN")},
+	{".netlify.com", _T("Netlify")},
 	{NULL, NULL}
 };
 
@@ -154,9 +156,11 @@ CDN_PROVIDER_HEADER cdnHeaderList[] = {
 	{"server", "gws", _T("Google")},
 	{"server", "GSE", _T("Google")},
 	{"server", "Golfe2", _T("Google")},
+	{"Via", "google", _T("Google")},
 	{"server", "tsa_b", _T("Twitter")},
 	{"X-Cache", "cache.51cdn.com", _T("ChinaNetCenter")},
 	{"X-CDN", "Incapsula", _T("Incapsula")},
 	{"X-Iinfo", "", _T("Incapsula")},
 	{"server", "gocache", _T("GoCache")}
+	{"server", "Netlify", _T("Netlify")}
 };

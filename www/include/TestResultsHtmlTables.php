@@ -318,7 +318,7 @@ class TestResultsHtmlTables {
 
     $out = "<br><br>\n";
     $out .= "<a href=\"$downloadUrl\" title=\"Download Chrome Dev Tools Timeline\">Timeline</a>\n";
-    $out .= " (<a href=\"$viewUrl\" title=\"View Chrome Dev Tools Timeline\">view</a>)\n";
+    $out .= " (<a href=\"$viewUrl\" target=\"_blank\" title=\"View Chrome Dev Tools Timeline\">view</a>)\n";
     $out .= "<br>\n";
     $out .= "<a href=\"$breakdownUrl\" title=\"View browser main thread activity by event type\">Processing Breakdown</a>";
     return $out;
@@ -375,7 +375,7 @@ class TestResultsHtmlTables {
   private function _getTraceLinks($stepResult) {
     $infoArray = $this->testInfo->getInfoArray();
     $localPaths = $stepResult->createTestPaths();
-    if (empty($infoArray["trace"]) || !gz_is_file($localPaths->devtoolsTraceFile())) {
+    if ((empty($infoArray["trace"]) && !$this->testInfo->hasTimeline()) || !gz_is_file($localPaths->devtoolsTraceFile())) {
       return "";
     }
     $filenamePaths = $stepResult->createTestPaths("");
@@ -384,7 +384,7 @@ class TestResultsHtmlTables {
     $viewUrl = $urlGenerator->stepDetailPage("chrome/trace");
 
     $out = "<br><br><a href=\"$zipUrl\" title=\"Download Chrome Trace\">Trace</a>\n";
-    $out .= " (<a href=\"$viewUrl\" title=\"View Chrome Trace\">view</a>)\n";
+    $out .= " (<a href=\"$viewUrl\" target=\"_blank\" title=\"View Chrome Trace\">view</a>)\n";
     return $out;
   }
 

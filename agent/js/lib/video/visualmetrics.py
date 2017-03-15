@@ -48,8 +48,8 @@ client_viewport = None
 # Frame Extraction and de-duplication
 # #######################################################################################################################
 
-def video_to_frames(video, directory, force, orange_file, multiple, find_viewport, viewport_time, full_resolution,
-                    timeline_file, trim_end):
+def video_to_frames(video, directory, force, orange_file, white_file, multiple, find_viewport, viewport_time,
+                    full_resolution, timeline_file, trim_end):
   global options
   global client_viewport
   first_frame = os.path.join(directory, 'ms_000000')
@@ -78,8 +78,9 @@ def video_to_frames(video, directory, force, orange_file, multiple, find_viewpor
             if orange_file is not None:
               remove_frames_before_orange(dir, orange_file)
               remove_orange_frames(dir, orange_file)
-            find_first_frame(dir)
+            find_first_frame(dir, white_file)
             find_render_start(dir)
+            find_last_frame(dir, white_file)
             adjust_frame_times(dir)
             if timeline_file is not None and not multiple:
               synchronize_to_timeline(dir, timeline_file)
@@ -308,8 +309,8 @@ def find_video_viewport(video, directory, find_viewport, viewport_time):
         im = Image.open(frame)
         pixels = im.load()
         middle = int(math.floor(height / 2))
-        # Find the top edge
-        x = 0
+        # Find the top edge (at ~40% in to deal with browsers that color the notification area)
+        x = int(width * 0.4)
         y = 0
         background = pixels[x, y]
         top = None
@@ -323,8 +324,8 @@ def find_video_viewport(video, directory, find_viewport, viewport_time):
         logging.debug('Window top edge is {0:d}'.format(top))
 
         # Find the bottom edge
+        x = 0
         y = height - 1
-        background = pixels[x, y]
         bottom = None
         while bottom is None and y > middle:
           if not colors_are_similar(background, pixels[x, y]):
@@ -385,10 +386,21 @@ def adjust_frame_times(directory):
         os.rename(frame, dest)
 
 
-def find_first_frame(directory):
+def find_first_frame(directory, white_file):
   global options
   try:
-    if options.findstart > 0 and options.findstart <= 100:
+    if options.startwhite:
+      files = sorted(glob.glob(os.path.join(directory, 'video-*.png')))
+      count = len(files)
+      if count > 1:
+        from PIL import Image
+        for i in xrange(count):
+          if is_white_frame(files[i], white_file):
+            break
+          else:
+            logging.debug('Removing non-white frame {0} from the beginning'.format(files[i]))
+            os.remove(files[i])
+    elif options.findstart > 0 and options.findstart <= 100:
       files = sorted(glob.glob(os.path.join(directory, 'video-*.png')))
       count = len(files)
       if count > 1:
@@ -398,21 +410,63 @@ def find_first_frame(directory):
           width, height = im.size
         match_height = int(math.ceil(height * options.findstart / 100.0))
         crop = '{0:d}x{1:d}+{2:d}+{3:d}'.format(width, match_height, 0, 0)
+        found_first_change = False
+        found_white_frame = False
+        found_non_white_frame = False
+        first_frame = None
+        if white_file is None:
+          found_white_frame = True
         for i in xrange(count):
-          different = not frames_match(files[i], files[i + 1], 5, 100, crop, None)
-          logging.debug('Removing early frame {0} from the beginning'.format(files[i]))
-          os.remove(files[i])
-          if different:
+          if not found_first_change:
+            different = not frames_match(files[i], files[i + 1], 5, 100, crop, None)
+            logging.debug('Removing early frame {0} from the beginning'.format(files[i]))
+            os.remove(files[i])
+            if different:
+              first_frame = files[i + 1]
+              found_first_change = True
+          elif not found_white_frame:
+            if files[i] != first_frame:
+              if found_non_white_frame:
+                found_white_frame = is_white_frame(files[i], white_file)
+                if not found_white_frame:
+                  logging.debug('Removing early non-white frame {0} from the beginning'.format(files[i]))
+                  os.remove(files[i])
+              else:
+                found_non_white_frame = not is_white_frame(files[i], white_file)
+                logging.debug('Removing early pre-non-white frame {0} from the beginning'.format(files[i]))
+                os.remove(files[i])
+          if found_first_change and found_white_frame:
             break
   except:
     logging.exception('Error finding first frame')
+
+
+def find_last_frame(directory, white_file):
+  global options
+  try:
+    if options.endwhite:
+      files = sorted(glob.glob(os.path.join(directory, 'video-*.png')))
+      count = len(files)
+      if count > 2:
+        found_end = False
+        from PIL import Image
+        for i in xrange(2, count):
+          if found_end:
+            logging.debug('Removing frame {0} from the end'.format(files[i]))
+            os.remove(files[i])
+          if is_white_frame(files[i], white_file):
+            found_end = True
+            logging.debug('Removing ending white frame {0}'.format(files[i]))
+            os.remove(files[i])
+  except:
+    logging.exception('Error finding last frame')
 
 
 def find_render_start(directory):
   global options
   global client_viewport
   try:
-    if options.renderignore > 0 and options.renderignore <= 100:
+    if client_viewport is not None or options.viewport is not None or (options.renderignore > 0 and options.renderignore <= 100):
       files = sorted(glob.glob(os.path.join(directory, 'video-*.png')))
       count = len(files)
       if count > 1:
@@ -420,11 +474,14 @@ def find_render_start(directory):
         first = files[0]
         with Image.open(first) as im:
           width, height = im.size
-        mask = {}
-        mask['width'] = int(math.floor(width * options.renderignore / 100))
-        mask['height'] = int(math.floor(height * options.renderignore / 100))
-        mask['x'] = int(math.floor(width / 2 - mask['width'] / 2))
-        mask['y'] = int(math.floor(height / 2 - mask['height'] / 2))
+        if options.renderignore > 0 and options.renderignore <= 100:
+          mask = {}
+          mask['width'] = int(math.floor(width * options.renderignore / 100))
+          mask['height'] = int(math.floor(height * options.renderignore / 100))
+          mask['x'] = int(math.floor(width / 2 - mask['width'] / 2))
+          mask['y'] = int(math.floor(height / 2 - mask['height'] / 2))
+        else:
+          mask = None
         top = 10
         right_margin = 10
         bottom_margin = 10
@@ -442,7 +499,7 @@ def find_render_start(directory):
           top += client_viewport['y']
         crop = '{0:d}x{1:d}+{2:d}+{3:d}'.format(width, height, left, top)
         for i in xrange(1, count):
-          if frames_match(first, files[i], 10, 100, crop, mask):
+          if frames_match(first, files[i], 10, 500, crop, mask):
             logging.debug('Removing pre-render frame {0}'.format(files[i]))
             os.remove(files[i])
           else:
@@ -613,7 +670,7 @@ def clean_directory(directory):
 def is_orange_frame(file, orange_file):
   orange = False
   if os.path.isfile(orange_file):
-    command = ('convert "{0}" "(" "{1}" -gravity Center -crop 50x33%+0+0 -resize 200x200! ")" miff:- | '
+    command = ('convert "{0}" "(" "{1}" -gravity Center -crop 50%x33%+0+0 -resize 200x200! ")" miff:- | '
                'compare -metric AE - -fuzz 10% null:').format(orange_file, file)
     compare = subprocess.Popen(command, stderr=subprocess.PIPE, shell=True)
     out, err = compare.communicate()
@@ -625,11 +682,41 @@ def is_orange_frame(file, orange_file):
   return orange
 
 
-def colors_are_similar(a, b):
+def is_white_frame(file, white_file):
+  global client_viewport
+  global options
+  white = False
+  if os.path.isfile(white_file):
+    if options.viewport:
+      command = ('convert "{0}" "(" "{1}" -resize 200x200! ")" miff:- | '
+                 'compare -metric AE - -fuzz 10% null:').format(white_file, file)
+    else:
+      command = ('convert "{0}" "(" "{1}" -gravity Center -crop 50%x33%+0+0 -resize 200x200! ")" miff:- | '
+                 'compare -metric AE - -fuzz 10% null:').format(white_file, file)
+    if client_viewport is not None:
+      crop = '{0:d}x{1:d}+{2:d}+{3:d}'.format(client_viewport['width'], client_viewport['height'], client_viewport['x'], client_viewport['y'])
+      command = ('convert "{0}" "(" "{1}" -crop {2} -resize 200x200! ")" miff:- | '
+                 'compare -metric AE - -fuzz 10% null:').format(white_file, file, crop)
+    compare = subprocess.Popen(command, stderr=subprocess.PIPE, shell=True)
+    out, err = compare.communicate()
+    if re.match('^[0-9]+$', err):
+      different_pixels = int(err)
+      if different_pixels < 500:
+        white = True
+
+  return white
+
+
+def colors_are_similar(a, b, threshold = 15):
   similar = True
+  sum = 0
   for x in xrange(3):
-    if abs(a[x] - b[x]) > 25:
+    delta = abs(a[x] - b[x])
+    sum += delta
+    if delta > threshold:
       similar = False
+  if sum > threshold:
+    similar = False
 
   return similar
 
@@ -676,6 +763,19 @@ def generate_orange_png(orange_file):
     im.save(orange_file, 'PNG')
   except:
     logging.exception('Error generating orange png ' + orange_file)
+
+
+def generate_white_png(white_file):
+  try:
+    from PIL import Image, ImageDraw
+
+    im = Image.new('RGB', (200, 200))
+    draw = ImageDraw.Draw(im)
+    draw.rectangle([0, 0, 200, 200], fill=(255, 255, 255))
+    del draw
+    im.save(white_file, 'PNG')
+  except:
+    logging.exception('Error generating white png ' + white_file)
 
 
 def synchronize_to_timeline(directory, timeline_file):
@@ -860,6 +960,23 @@ def calculate_image_histogram(file):
 
 
 ########################################################################################################################
+#   Screen Shots
+########################################################################################################################
+
+
+def save_screenshot(directory, dest, quality):
+  directory = os.path.realpath(directory)
+  files = sorted(glob.glob(os.path.join(directory, 'ms_*.png')))
+  if files is not None and len(files) >= 1:
+    src = files[-1]
+    if dest[-4:] == '.jpg':
+      command = 'convert "{0}" -set colorspace sRGB -quality {1:d} "{2}"'.format(src, quality, dest)
+      subprocess.call(command, shell=True)
+    else:
+      shutil.copy(src, dest)
+
+
+########################################################################################################################
 #   JPEG conversion
 ########################################################################################################################
 
@@ -928,7 +1045,7 @@ def sample_frames(frames, interval, start_ms, skip_frames):
     logging.debug('Sapling frames in {0:d}ms intervals after {1:d} ms, skipping {2:d} frames...'.format(interval,
                                                                                                         first_change_time + start_ms,
                                                                                                         skip_frames))
-    frame_count = 0;
+    frame_count = 0
     for frame in frames:
       m = re.search(match, frame)
       if m is not None:
@@ -1018,8 +1135,8 @@ def calculate_visual_progress(histograms):
 
 
 def calculate_frame_progress(histogram, start, final):
-  total = 0;
-  matched = 0;
+  total = 0
+  matched = 0
   slop = 5  # allow for matching slight color variations
   channels = ['r', 'g', 'b']
   for channel in channels:
@@ -1174,6 +1291,7 @@ def main():
   parser.add_argument('-i', '--video', help="Input video file.")
   parser.add_argument('-d', '--dir', help="Directory of video frames "
                                           "(as input if exists or as output if a video file is specified).")
+  parser.add_argument('--screenshot', help="Save the last frame of video as an image to the path provided.")
   parser.add_argument('-g', '--histogram', help="Histogram file (as input if exists or as output if "
                                                 "histograms need to be calculated).")
   parser.add_argument('-m', '--timeline', help="Timeline capture from Chrome dev tools. Used to synchronize the video"
@@ -1187,6 +1305,8 @@ def main():
                       help="Force processing of a video file (overwrite existing directory).")
   parser.add_argument('-o', '--orange', action='store_true', default=False,
                       help="Remove orange-colored frames from the beginning of the video.")
+  parser.add_argument('-w', '--white', action='store_true', default=False,
+                      help="Wait for a full white frame after a non-white frame at the beginning of the video.")
   parser.add_argument('--multiple', action='store_true', default=False,
                       help="Multiple videos are combined, separated by orange frames."
                            "In this mode only the extraction is done and analysis needs to be run separetely on "
@@ -1206,6 +1326,10 @@ def main():
                                                                "of the video (like a browser address bar).")
   parser.add_argument('--renderignore', type=int, default=0, help="Ignore the center X% of the frame when looking for "
                                                                   "the first rendered frame (useful for Opera mini).")
+  parser.add_argument('--startwhite', action='store_true', default=False,
+                      help="Find the first fully white frame as the start of the video.")
+  parser.add_argument('--endwhite', action='store_true', default=False,
+                      help="Find the first fully white frame after render start as the end of the video.")
   parser.add_argument('--forceblank', action='store_true', default=False,
                       help="Force the first frame to be blank white.")
   parser.add_argument('--trimend', type=int, default=0, help="Time to trim from the end of the video "
@@ -1259,17 +1383,27 @@ def main():
         orange_file = None
         if options.orange:
           orange_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'orange.png')
-        if options.orange and \
-            not os.path.isfile(orange_file):
-          orange_file = os.path.join(temp_dir, 'orange.png')
-          generate_orange_png(orange_file)
-        video_to_frames(options.video, directory, options.force, orange_file, options.multiple,
+          if not os.path.isfile(orange_file):
+            orange_file = os.path.join(temp_dir, 'orange.png')
+            generate_orange_png(orange_file)
+        white_file = None
+        if options.white or options.startwhite or options.endwhite:
+          white_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'white.png')
+          if not os.path.isfile(white_file):
+            white_file = os.path.join(temp_dir, 'white.png')
+            generate_white_png(white_file)
+        video_to_frames(options.video, directory, options.force, orange_file, white_file, options.multiple,
                         options.viewport, options.viewporttime, options.full, options.timeline, options.trimend)
       if not options.multiple:
         # Calculate the histograms and visual metrics
         calculate_histograms(directory, histogram_file, options.force)
         metrics = calculate_visual_metrics(histogram_file, options.start, options.end, options.perceptual,
                                            directory)
+        if options.screenshot is not None:
+          quality = 30
+          if options.quality is not None:
+            quality = options.quality
+          save_screenshot(directory, options.screenshot, quality)
         # JPEG conversion
         if options.dir is not None and options.quality is not None:
           convert_to_jpeg(directory, options.quality)

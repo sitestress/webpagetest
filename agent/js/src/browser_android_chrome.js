@@ -84,17 +84,16 @@ var BLACK_BOX_BROWSERS = {
     'UC Mini': {
       'package': 'com.uc.browser.en', 
       'activity': 'com.uc.browser.ActivityBrowser',
-      'relaunch': true,
-      'clearProfile': true,
       'videoFlags': ['--findstart', 25, '--notification'],
-      'startupDelay': 4000
+      'directories': ['cache', 'databases', 'files', 'app_webview', 'user', 'wa'],
+      'startupDelay': 10000
     },
     'UC Browser': {
       'package': 'com.UCMobile.intl',
       'activity': 'com.UCMobile.main.UCMobile',
-      'clearProfile' : true,
       'videoFlags': ['--findstart', 25, '--notification'],
-      'startupDelay': 10000
+      'directories': ['cache', 'databases', 'files', 'app_webview', 'crash', 'temp', 'user', 'wa'],
+      'startupDelay': 15000
     },
     'Opera Mini': {
       'package': 'com.opera.mini.native',
@@ -103,6 +102,44 @@ var BLACK_BOX_BROWSERS = {
                      '--forceblank'],
       'directories': ['cache', 'databases', 'files', 'app_opera', 'app_webview'],
       'startupDelay': 10000
+    },
+    'Samsung Browser': {
+      'package': 'com.sec.android.app.sbrowser',
+      'activity': '.SBrowserMainActivity',
+      'videoFlags': ['--findstart', 25, '--notification'],
+      'directories': ['cache', 'databases', 'files', 'app_sbrowser', 'code_cache'],
+      'startupDelay': 10000
+    },
+    'QQ Browser': {
+      'package': 'com.tencent.mtt.intl',
+      'activity': 'com.tencent.mtt.SplashActivity',
+      'videoFlags': ['--findstart', 25, '--notification'],
+      'directories': ['cache', 'databases', 'files', 'app_appcache', 'app_databases', 'app_databases_tmp', 'app_x5_share'],
+      'startupDelay': 10000
+    },
+    'Firefox': {
+      'package': 'org.mozilla.firefox',
+      'activity': '.App',
+      'videoFlags': ['--findstart', 25, '--notification'],
+      'clearProfile': true,
+      'startupDelay': 10000
+    },
+    'Firefox Beta': {
+      'package': 'org.mozilla.firefox_beta',
+      'activity': '.App',
+      'videoFlags': ['--findstart', 25, '--notification'],
+      'clearProfile': true,
+      'startupDelay': 10000
+    },
+    'Blimp': {
+      'package': 'org.chromium.blimp',
+      'activity': 'com.google.android.apps.chrome.Main',
+      'flagsFile': '/data/local/chrome-command-line',
+      'flags': CHROME_FLAGS,
+      'activityFlags': ['-f', '268435456', '--ez', 'android.support.customtabs.extra.user_opt_out', 'true'],
+      'videoFlags': ['--findstart', 25, '--notification', '--white', '--forceblank'],
+      'clearProfile': true,
+      'startupDelay': 40000
     },
   };
 
@@ -126,8 +163,6 @@ var LAST_INSTALL_FILE = 'lastInstall.txt';
  *      #param {string=} chrome Chrome.apk to install, defaults to None.
  *      #param {string=} chromeActivity activity without the '.Main' suffix,
  *           defaults to 'com.google.android.apps.chrome'.
- *      #param {string=} chromePackage package, defaults task.browser-based
- *          package if set, else 'com.android.google'.
  *      #param {string=} devToolsPort DevTools port, defaults to dynamic
  *           selection.
  *      #param {string=} maxtemp maximum isReady temperature.
@@ -161,33 +196,38 @@ function BrowserAndroidChrome(app, args) {
   this.supportsTracing = true;
   this.isBlackBox = false;
   this.videoFlags = undefined;
-  if (args.flags.chromePackage) {
-    this.browserPackage_ = args.flags.chromePackage;
-  } else if (args.task.browser) {
+  this.browserConfig_ = undefined;
+  this.activityFlags_ = undefined;
+  this.browserPackage_ = args.task.customBrowser_package ||
+      this.browserPackage_ || 'com.android.chrome';
+  this.browserActivity_ = args.task.customBrowser_activity ||
+      args.chromeActivity || this.browserActivity_ ||
+      'com.google.android.apps.chrome.Main';
+  if (args.task['customBrowser_type'] !== undefined && BLACK_BOX_BROWSERS[args.task['customBrowser_type']] !== undefined)
+    args.task.browser = args.task['customBrowser_type'];
+  if (args.task.browser) {
     var browserName = args.task.browser;
     var separator = browserName.lastIndexOf('-');
     if (separator >= 0) {
       browserName = browserName.substr(separator + 1).trim();
     }
-    this.browserPackage_ = KNOWN_BROWSERS[browserName];
-    if (!this.browserPackage_ && BLACK_BOX_BROWSERS[browserName] != undefined) {
-      this.browserPackage_ = BLACK_BOX_BROWSERS[browserName].package;
+    logger.debug('Looking for browser "' + browserName + '"');
+    this.browserPackage_ = args.task.customBrowser_package || KNOWN_BROWSERS[browserName] || this.browserPackage_ ;
+    if (BLACK_BOX_BROWSERS[browserName] != undefined) {
+      this.browserPackage_ = args.task.customBrowser_package || BLACK_BOX_BROWSERS[browserName].package;
       this.browserActivity_ = BLACK_BOX_BROWSERS[browserName].activity;
       this.blank_page_ = args.flags.blankPage ||
-                         'http://www.webpagetest.org/blank.html';
+                         'http://api.webpagetest.org/blank.html';
       this.isBlackBox = true;
       this.supportsTracing = false;
       this.browserConfig_ = BLACK_BOX_BROWSERS[browserName];
       if (BLACK_BOX_BROWSERS[browserName]['videoFlags'] != undefined)
         this.videoFlags = BLACK_BOX_BROWSERS[browserName].videoFlags;
+      if (BLACK_BOX_BROWSERS[browserName]['activityFlags'] != undefined)
+        this.activityFlags_ = BLACK_BOX_BROWSERS[browserName]['activityFlags'];
     }
   }
-  this.blank_page_ = this.blank_page_ || 'about:blank';
-  this.browserPackage_ = args.task.customBrowser_package ||
-      args.chromePackage_ || this.browserPackage_ || 'com.android.chrome';
-  this.browserActivity_ = args.task.customBrowser_activity ||
-      args.chromeActivity || this.browserActivity_ ||
-      'com.google.android.apps.chrome.Main';
+  this.blank_page_ = this.blank_page_ || args.startURL || 'about:blank';
   this.flagsFile_ = args.task.customBrowser_flagsFile ||
       args.flagsFile || '/data/local/chrome-command-line';
   this.devToolsPort_ = args.flags.devToolsPort;
@@ -203,8 +243,9 @@ function BrowserAndroidChrome(app, args) {
   this.pacFile_ = undefined;
   this.maxTemp = args.flags.maxtemp ? parseFloat(args.flags.maxtemp) : 0;
   this.checkNet = 'yes' === args.flags.checknet;
-  this.useRndis = this.checkNet && 'yes' === args.flags.useRndis;
-  this.rndis444 = args.flags['rndis444'] ? args.flags.rndis444 : undefined;
+  this.rndis = args.flags['rndis'] !== undefined ? args.flags['rndis'] : undefined;
+  if (args.flags['rndis444'] !== undefined)
+    this.rndis = args.flags['rndis444'];
   this.deviceVideoPath_ = undefined;
   this.recordProcess_ = undefined;
   function toDir(s) {
@@ -227,6 +268,8 @@ function BrowserAndroidChrome(app, args) {
   this.lastVideoSize_ = 0;
   this.videoStarted_ = false;
   this.videoIdleCount_ = 0;
+  this.osVersion = undefined;
+  this.browserVersion = undefined;
 }
 util.inherits(BrowserAndroidChrome, browser_base.BrowserBase);
 /** Public class. */
@@ -307,6 +350,7 @@ BrowserAndroidChrome.prototype.startBrowser = function() {
   this.scheduleInstallIfNeeded_();
   this.scheduleSetStartupFlags_();
   this.clearProfile_();
+  this.getBrowserVersion_();
 
   // Flush the DNS cache
   this.adb_.su(['ndc', 'resolver', 'flushdefaultif']);
@@ -315,23 +359,37 @@ BrowserAndroidChrome.prototype.startBrowser = function() {
   this.navigateTo(this.blank_page_);
   if (this.isBlackBox) {
     if (this.browserConfig_['relaunch']) {
-      // Get around first-launch UI
-      this.app_.timeout(1000, 'Wait for first browser startup');
+      // Get around first-launch UI and let things download
+      this.app_.timeout(this.browserConfig_['startupDelay'], 'Wait for first browser startup');
       this.kill();
       this.navigateTo(this.blank_page_);
     }
     this.app_.timeout(this.browserConfig_['startupDelay'], 'Wait for browser startup');
+    this.waitForNetworkIdle_(60000);
   }
 
   this.scheduleConfigureDevToolsPort_();
 };
 
-BrowserAndroidChrome.prototype.navigateTo = function(url) {
+BrowserAndroidChrome.prototype.navigateTo = function(url, currentRetry) {
   'use strict';
+  var retry = (typeof currentRetry !== 'undefined') ?  currentRetry: 0;
   this.app_.schedule('Navigate', function() {
     var activity = this.browserPackage_ + '/' + this.browserActivity_;
-    this.adb_.shell(['am', 'start', '-n', activity,
-        '-a', 'android.intent.action.VIEW', '-d', url]);
+    var command = ['am', 'start', '-n', activity, '-a', 'android.intent.action.VIEW', '-d', url]
+    if (this.activityFlags_ !== undefined)
+      command = command.concat(this.activityFlags_);
+    this.adb_.shell(command).then(function(stdout) {
+      if (!stdout.length) {
+        if (retry < 20) {
+          logger.debug("Navigate failed, retrying");
+          this.app_.timeout(1000, 'Wait to renavigate a failed intent');
+          this.navigateTo(url, retry + 1);
+        } else {
+          throw new Error('Unable to trigger navigation');
+        }
+      }
+    }.bind(this));
   }.bind(this));
 };
 
@@ -354,42 +412,56 @@ BrowserAndroidChrome.prototype.onChildProcessExit = function() {
  */
 BrowserAndroidChrome.prototype.clearProfile_ = function() {
   'use strict';
-  if (this.isBlackBox) {
-    if (!this.isCacheWarm_) {
-      if (this.browserConfig_['clearProfile']) {
-        // Nuke all of the application data
-        this.adb_.shell(['pm', 'clear', this.browserPackage_]);
-      } else if (this.browserConfig_['directories']) {
-        // Just clear out the cache directories
-        for (var i = 0; i < this.browserConfig_.directories.length; i++) {
-          this.adb_.su(['rm', '-r', '/data/data/' + this.browserPackage_ +
-                       '/' + this.browserConfig_.directories[i]]);
-        }
+  if (this.isCacheWarm_) {
+    this.adb_.su(['rm', '-r', '/data/data/' + this.browserPackage_ +
+                 '/app_tabs']);
+  } else if (this.isBlackBox) {
+    if (this.browserConfig_['clearProfile']) {
+      // Nuke all of the application data
+      this.adb_.shell(['pm', 'clear', this.browserPackage_]);
+    } else if (this.browserConfig_['directories']) {
+      // Just clear out the cache directories
+      for (var i = 0; i < this.browserConfig_.directories.length; i++) {
+        this.adb_.su(['rm', '-r', '/data/data/' + this.browserPackage_ +
+                     '/' + this.browserConfig_.directories[i]]);
       }
     }
   } else {
-    if (this.isCacheWarm_) {
-      this.adb_.su(['rm', '-r', '/data/data/' + this.browserPackage_ +
-                   '/app_tabs']);
-    } else {
-      // Delete everything except the lib directory
-      this.adb_.su(['ls', '/data/data/' + this.browserPackage_]).then(
-          function(files) {
-        var lines = files.split('\n');
-        var count = lines.length;
-        var directories = '';
-        for (var i = 0; i < count; i++) {
-          var file = lines[i].trim();
-          if (file.length && file !== '.' && file !== '..' &&
-              file !== 'lib' && file !== 'shared_prefs') {
-            directories += ' /data/data/' + this.browserPackage_ + '/' + file;
-          }
+    // Delete everything except the lib directory
+    this.adb_.su(['ls', '/data/data/' + this.browserPackage_]).then(
+        function(files) {
+      var lines = files.split('\n');
+      var count = lines.length;
+      var directories = '';
+      for (var i = 0; i < count; i++) {
+        var file = lines[i].trim();
+        if (file.length && file !== '.' && file !== '..' &&
+            file !== 'lib' && file !== 'shared_prefs') {
+          directories += ' /data/data/' + this.browserPackage_ + '/' + file;
         }
-        if (directories.length)
-          this.adb_.su(['rm', '-r ' + directories]);
-      }.bind(this));
-    }
+      }
+      if (directories.length)
+        this.adb_.su(['rm', '-r ' + directories]);
+    }.bind(this));
   }
+};
+
+/**
+ * Pull the version string out of the apk and store it for later reporting.
+ */
+BrowserAndroidChrome.prototype.getBrowserVersion_ = function() {
+  this.adb_.shell(['dumpsys', 'package', this.browserPackage_, '|',
+                   'grep', 'versionName', '|',
+                   'head', '-n1']).then(
+    function(stdout) {
+      if (stdout && stdout.length) {
+        var parts = stdout.trim().split("=");
+        if (parts && parts.length >= 2) {
+          this.browserVersion = parts[1];
+          logger.debug('Browser Version: "' + this.browserVersion + '"');
+        }
+      }
+  }.bind(this));
 };
 
 BrowserAndroidChrome.prototype.clearDownloads_ = function() {
@@ -417,6 +489,8 @@ BrowserAndroidChrome.prototype.clearKnownApps_ = function() {
     this.adb_.shell(['am', 'force-stop', 'com.motorola.ccc.ota']);
     // Google docs pdf viewer
     this.adb_.shell(['am', 'force-stop', 'com.google.android.apps.docs']);
+    // Samsung USB message
+    this.adb_.shell(['am', 'force-stop', 'com.samsung.android.MtpApplication']);
   }.bind(this));
 };
 
@@ -601,8 +675,10 @@ BrowserAndroidChrome.prototype.scheduleNeedsXvfb_ = function() {
 BrowserAndroidChrome.prototype.scheduleSetStartupFlags_ = function() {
   'use strict';
   this.app_.schedule('Configure startup flags', function() {
+    var flags = undefined;
+    var flagsFile = undefined;
     if (!this.isBlackBox) {
-      var flags = this.chromeFlags_.concat('--enable-remote-debugging');
+      flags = this.chromeFlags_.concat('--enable-remote-debugging');
       if (this.pac_) {
         flags.push('--proxy-pac-url=http://127.0.0.1:' + PAC_PORT + '/from_netcat');
         if (PAC_PORT !== 80) {
@@ -610,6 +686,14 @@ BrowserAndroidChrome.prototype.scheduleSetStartupFlags_ = function() {
           flags.push('--explicitly-allowed-ports=' + PAC_PORT);
         }
       }
+      flagsFile = this.flagsFile_;
+    } else if (this.browserConfig_ !== undefined) {
+      if (this.browserConfig_['flags'] !== undefined)
+        flags = this.browserConfig_['flags'];
+      if (this.browserConfig_['flagsFile'] !== undefined)
+        flagsFile = this.browserConfig_['flagsFile'];
+    }
+    if (flagsFile && flags) {
       var localFlagsFile = path.join(this.runTempDir_, 'wpt_chrome_command_line');
       try {fs.unlinkSync(localFlagsFile);} catch(e) {}
       var flagsString = 'chrome ' + flags.join(' ');
@@ -626,9 +710,9 @@ BrowserAndroidChrome.prototype.scheduleSetStartupFlags_ = function() {
         fs.writeFileSync(localFlagsFile, flagsString);
         var tempFlagsFile = storagePath + '/wpt_chrome_command_line';
         this.adb_.adb(['push', localFlagsFile, tempFlagsFile]);
-        this.adb_.su(['cp', tempFlagsFile, this.flagsFile_]);
+        this.adb_.su(['cp', tempFlagsFile, flagsFile]);
         this.adb_.shell(['rm', tempFlagsFile]);
-        this.adb_.su(['chmod', '666', this.flagsFile_]);
+        this.adb_.su(['chmod', '666', flagsFile]);
       }.bind(this));
     }
   }.bind(this));
@@ -786,12 +870,13 @@ BrowserAndroidChrome.prototype.scheduleGetCapabilities = function() {
   'use strict';
   return this.adb_.shell(['getprop', 'ro.build.version.release']).then(
       function(stdout) {
+    this.osVersion = stdout.trim();
     return {
       webdriver: false,
       'wkrdp.Page.captureScreenshot': false,
       'wkrdp.Network.clearBrowserCache': true,
       'wkrdp.Network.clearBrowserCookies': true,
-      videoRecording: parseFloat(stdout) >= 4.4,
+      videoRecording: parseFloat(this.osVersion) >= 4.4,
       videoFileExtension: 'mp4',
       takeScreenshot: true
     };
@@ -911,7 +996,7 @@ BrowserAndroidChrome.prototype.scheduleAssertIsReady = function() {
   'use strict';
   return this.app_.schedule('Assert isReady', function() {
     if (this.checkNet) {
-      if (this.rndis444 || this.useRndis) {
+      if (this.rndis !== undefined) {
         this.adb_.scheduleAssertRndisIsEnabled();
       } else {
         this.adb_.scheduleDetectConnectedInterface();
@@ -966,13 +1051,8 @@ BrowserAndroidChrome.prototype.scheduleMakeReady = function() {
   return this.scheduleAssertIsReady().then(function() {
     return false;  // Was already online.
   }, function(e) {
-    if (this.checkNet && this.rndis444) {
-      return this.adb_.scheduleEnableRndis444(this.rndis444).then(
-          this.scheduleAssertIsReady.bind(this)).then(function() {
-        return true;  // Was offline but we're back online now.
-      });
-    } else if (this.checkNet && this.useRndis) {
-      return this.adb_.scheduleEnableRndis().then(
+    if (this.checkNet && this.rndis !== undefined) {
+      return this.adb_.scheduleEnableRndis(this.rndis).then(
           this.scheduleAssertIsReady.bind(this)).then(function() {
         return true;  // Was offline but we're back online now.
       });
@@ -1002,8 +1082,13 @@ BrowserAndroidChrome.prototype.scheduleActivityDetected = function() {
       this.lastVideoSize_ = video_size;
 
       if (!this.videoStarted_) {
-        if (video_delta > 100000)
+        if (this['videoStartedCount_'] == undefined)
+          this.videoStartedCount_ = 0;
+        // Wait for the first large jump or 30 seconds to consider video "started" (checks are done every 5 seconds)
+        if (video_delta > 50000 || video_size > 0 && this.videoStartedCount_ > 6) {
           this.videoStarted_ = true;
+        }
+        this.videoStartedCount_++;
       } else {
         if (video_delta > 10000) {
           this.videoIdleCount_ = 0;
@@ -1016,4 +1101,24 @@ BrowserAndroidChrome.prototype.scheduleActivityDetected = function() {
     }
     return activity_detected;
   }.bind(this));
+};
+
+BrowserAndroidChrome.prototype.waitForNetworkIdle_ = function(timeout) {
+  this.networkIdleCount_ = 0;
+  this.networkIdleLastCheck_ = process.hrtime();
+
+  this.app_.wait(function() {
+    var elapsed = process.hrtime(this.networkIdleLastCheck_)[0];
+    if (elapsed < 1)
+      return false;
+    this.networkIdleLastCheck_ = process.hrtime();
+    return this.adb_.scheduleGetBytesRx().then(function(rx) {
+      logger.debug("Bytes Rx: " + rx);
+      if (rx > 1000)
+        this.networkIdleCount_ = 0;
+      else
+        this.networkIdleCount_++;
+      return this.networkIdleCount_ >= 5;
+    }.bind(this));
+  }.bind(this), timeout);
 };

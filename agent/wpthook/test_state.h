@@ -121,6 +121,7 @@ public:
   void UnLock();
   void ResizeBrowserForResponsiveTest();
   void CheckResponsive();
+  CString TimeLog() {return _file_base + "_test_timing.log";}
 
   // times
   LARGE_INTEGER _launch;
@@ -189,6 +190,8 @@ public:
   CString                  _file_base;         // Base path for writing results files
   int reported_step_;
   CStringA  current_step_name_;
+  SharedMem shared_;
+  LogDuration * logMeasure_;
 
 private:
   bool  _first_request_sent;

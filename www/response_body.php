@@ -13,8 +13,7 @@ if (isset($_GET['bodyid'])) {
     $url = 'http://' . $url;
   require_once('object_detail.inc');
   $secure = false;
-  $haveLocations = false;
-  $requests = getRequests($id, $testPath, $run, $cached, $secure, $haveLocations, false, true);
+  $requests = getRequests($id, $testPath, $run, $cached, $secure, true);
   foreach( $requests as &$r ) {
     if ($r['full_url'] == $url) {
       $request = $r['number'];
@@ -33,7 +32,7 @@ if ($request || $body_id) {
         $name = $zip->getNameIndex($i);
         $parts = explode('-', $name);
         if (isset($body_id)) {
-          $id = intval($parts[1], 10);
+          $id = $parts[1];
           if ($id == $body_id) {
             $body = $zip->getFromIndex($i);
             break;

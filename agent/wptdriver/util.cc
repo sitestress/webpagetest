@@ -269,24 +269,57 @@ bool FindBrowserWindow( DWORD process_id, HWND& frame_window) {
 
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
-void WptTrace(int level, LPCTSTR format, ...) {
+void WptTrace(const wchar_t* format, ...) {
   #ifdef DEBUG
   va_list args;
-  va_start( args, format );
+  va_start(args, format);
 
-  int len = _vsctprintf( format, args ) + 1;
-  if (len) {
-    TCHAR * msg = (TCHAR *)malloc( len * sizeof(TCHAR) );
+  int len = _vscwprintf(format, args);
+  if (len > 0) {
+    len += 2;
+    int size = len * sizeof(wchar_t);
+    wchar_t * msg = (TCHAR *)malloc(size);
     if (msg) {
-      if (_vstprintf_s( msg, len, format, args ) > 0) {
-        if (lstrlen(msg)) {
-          OutputDebugString(msg);
-        }
+      memset(msg, 0, size);
+      if (vswprintf_s(msg, len, format, args) > 0 && lstrlenW(msg)) {
+        lstrcatW(msg, L"\n");
+        OutputDebugStringW(msg);
       }
 
       free( msg );
     }
   }
+  #endif
+}
+
+void WptTrace(const char* format, ...) {
+  #ifdef DEBUG
+  va_list args;
+  va_start(args, format);
+
+  int len = _vscprintf(format, args);
+  if (len > 0) {
+    len += 2;
+    int size = len * sizeof(char);
+    char * msg = (char *)malloc(size);
+    if (msg) {
+      memset(msg, 0, size);
+      if (vsprintf_s(msg, len, format, args) > 0 && lstrlenA(msg)) {
+        lstrcatA(msg, "\n");
+        OutputDebugStringA(msg);
+      }
+
+      free( msg );
+    }
+  }
+  #endif
+}
+
+void WptTrace(int dwCategory, int line, const wchar_t* format, ...) {
+  #ifdef DEBUG
+  va_list argptr; va_start(argptr, format);
+  WptTrace(format, argptr);
+  va_end(argptr);
   #endif
 }
 
@@ -539,6 +572,20 @@ bool FileExists(CString file) {
   if (GetFileAttributes(file) != INVALID_FILE_ATTRIBUTES)
     ret = true;
   return ret;
+}
+
+/*-----------------------------------------------------------------------------
+  See if the given file exists
+-----------------------------------------------------------------------------*/
+size_t FileSize(CString file) {
+  size_t size = 0;
+  HANDLE file_handle = CreateFile(file, GENERIC_READ, FILE_SHARE_READ, NULL,
+                                  OPEN_EXISTING, 0, 0);
+  if (file_handle != INVALID_HANDLE_VALUE) {
+    size = GetFileSize(file_handle, NULL);
+    CloseHandle(file_handle);
+  }
+  return size;
 }
 
 /*-----------------------------------------------------------------------------
@@ -925,4 +972,216 @@ bool IsBinaryContent(const LPBYTE content, size_t len) {
   }
 
   return is_binary;
+}
+
+/*-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------*/
+static LPTSTR GetAppInitString(LPCTSTR new_dll, HKEY hKey) {
+  LPTSTR dlls = NULL;
+  DWORD len = 0;
+
+  ATLTRACE(_T("GetAppInitString"));
+
+  // get the existing appinit list
+  if (RegQueryValueEx(hKey, _T("AppInit_DLLs"), 0, NULL, NULL, &len) ==
+      ERROR_SUCCESS) {
+    if (new_dll && lstrlen(new_dll))
+      len += (lstrlen(new_dll) + 2) * sizeof(TCHAR);
+    dlls = (LPTSTR)malloc(len);
+    memset(dlls, 0, len);
+    DWORD bytes = len;
+    RegQueryValueEx(hKey, _T("AppInit_DLLs"), 0, NULL, (LPBYTE)dlls, &bytes);
+  }
+
+  // allocate memory in case there wasn't an existing list
+  if (!dlls && new_dll && lstrlen(new_dll)) {
+    len = (lstrlen(new_dll) + 1) * sizeof(TCHAR);
+    dlls = (LPTSTR)malloc(len);
+    memset(dlls, 0, len);
+  }
+
+  // remove any occurences of wptload.dll, wptld64.dll and wptld64.dll from the list
+  if (dlls && lstrlen(dlls)) {
+    LPTSTR new_list = (LPTSTR)malloc(len);
+    memset(new_list, 0, len);
+    LPTSTR dll = _tcstok(dlls, _T(" ,"));
+    while (dll) {
+      if (lstrcmpi(PathFindFileName(dll), _T("wptload.dll")) &&
+          lstrcmpi(PathFindFileName(dll), _T("wptld64.dll")) &&
+          lstrcmpi(PathFindFileName(dll), _T("wptldr64.dll"))) {
+        if (lstrlen(new_list))
+          lstrcat(new_list, _T(","));
+        lstrcat(new_list, dll);
+      }
+      dll = _tcstok(NULL, _T(" ,"));
+    }
+    free(dlls);
+    dlls = new_list;
+  }
+
+  // add the new dll to the list
+  if (dlls && new_dll && lstrlen(new_dll)) {
+    if (lstrlen(dlls))
+      lstrcat(dlls, _T(","));
+    lstrcat(dlls, new_dll);
+  }
+
+  ATLTRACE(_T("GetAppInitString: '%s'"), dlls);
+
+  return dlls;
+}
+
+/*-----------------------------------------------------------------------------
+  Install the AppInit hook dll and use the exe to determine if it is for
+  64-bit or 32 (and only install the needed hook)
+-----------------------------------------------------------------------------*/
+bool InstallAppInitHook(LPCTSTR exe) {
+  ATLTRACE(_T("InstallAppInitHook - %s"), exe);
+  bool installed = false;
+
+  // Set an environment variable flag to let the hook identify the processes
+  // that should be inspected
+  SetEnvironmentVariable(_T("WPT_HOOK"), _T("YES"));
+
+  // See if we need the 64-bit version
+  DWORD reg_flags = 0;
+  LPCTSTR hook_dll = _T("wptload.dll");
+  BOOL is64bit = FALSE;
+  if (IsWow64Process(GetCurrentProcess(), &is64bit) && is64bit) {
+    DWORD binary_type = 0;
+    if (GetBinaryType(exe, &binary_type)) {
+      if (binary_type == SCS_64BIT_BINARY) {
+        reg_flags = KEY_WOW64_64KEY;
+        hook_dll = _T("wptldr64.dll");
+      }
+    }
+    ATLTRACE(_T("InstallAppInitHook - Binary type: %d"), binary_type);
+  }
+
+  // Update the AppInit registry key
+  TCHAR path[MAX_PATH];
+  if (GetModuleFileName(NULL, path, _countof(path))) {
+    lstrcpy(PathFindFileName(path), hook_dll);
+    TCHAR short_path[MAX_PATH];
+    if (GetShortPathName(path, short_path, _countof(short_path))) {
+      HKEY hKey;
+		  if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
+          _T("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"),
+          0, 0, 0, KEY_READ | KEY_WRITE | reg_flags, 0,
+          &hKey, 0) == ERROR_SUCCESS ) {
+			  DWORD val = 1;
+			  RegSetValueEx(hKey, _T("LoadAppInit_DLLs"), 0, REG_DWORD,
+                      (const LPBYTE)&val, sizeof(val));
+			  val = 0;
+			  RegSetValueEx(hKey, _T("RequireSignedAppInit_DLLs"), 0, REG_DWORD,
+                      (const LPBYTE)&val, sizeof(val));
+        LPTSTR dlls = GetAppInitString(short_path, hKey);
+        if (dlls) {
+			    RegSetValueEx(hKey, _T("AppInit_DLLs"), 0, REG_SZ,
+                        (const LPBYTE)dlls,
+                        (lstrlen(dlls) + 1) * sizeof(TCHAR));
+          free(dlls);
+        }
+        RegCloseKey(hKey);
+      }
+    }
+  }
+
+  return installed;
+  ATLTRACE(_T("InstallAppInitHook - Done"));
+}
+
+/*-----------------------------------------------------------------------------
+  Remove the WPT hook dll's from the AppInit dll entries
+-----------------------------------------------------------------------------*/
+void ClearAppInitHooks() {
+  HKEY hKey;
+  ATLTRACE(_T("ClearAppInitHooks"));
+  SetEnvironmentVariable(_T("WPT_HOOK"), NULL);
+	if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
+      _T("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"),
+      0, 0, 0, KEY_READ | KEY_WRITE, 0, &hKey, 0) == ERROR_SUCCESS ) {
+    LPTSTR dlls = GetAppInitString(NULL, hKey);
+    if (dlls) {
+			RegSetValueEx(hKey, _T("AppInit_DLLs"), 0, REG_SZ,
+                    (const LPBYTE)dlls,
+                    (lstrlen(dlls) + 1) * sizeof(TCHAR));
+      free(dlls);
+    }
+    RegCloseKey(hKey);
+  }
+  BOOL is64bit = FALSE;
+  if (IsWow64Process(GetCurrentProcess(), &is64bit) && is64bit) {
+	  if (RegCreateKeyEx(HKEY_LOCAL_MACHINE,
+        _T("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Windows"),
+        0, 0, 0, KEY_READ | KEY_WRITE | KEY_WOW64_64KEY, 0,
+        &hKey, 0) == ERROR_SUCCESS ) {
+      LPTSTR dlls = GetAppInitString(NULL, hKey);
+      if (dlls) {
+			  RegSetValueEx(hKey, _T("AppInit_DLLs"), 0, REG_SZ,
+                      (const LPBYTE)dlls,
+                      (lstrlen(dlls) + 1) * sizeof(TCHAR));
+        free(dlls);
+      }
+      RegCloseKey(hKey);
+    }
+  }
+  ATLTRACE(_T("ClearAppInitHooks - Done"));
+}
+
+/*-----------------------------------------------------------------------------
+  Run the given python script and wait for a result (assume C:\Python27)
+-----------------------------------------------------------------------------*/
+bool RunPythonScript(CString script, CString options) {
+  bool ok = false;
+  CString command_line = _T("C:\\Python27\\python.exe");
+  if (FileExists(command_line)) {
+    TCHAR dir[MAX_PATH];
+    if (GetModuleFileName(NULL, dir, _countof(dir))) {
+      *PathFindFileName(dir) = 0;
+      CString script_path = dir;
+      script_path += script;
+      if (FileExists(script_path)) {
+        command_line += _T(" \"") + script_path + _T("\"");
+        if (options.GetLength())
+          command_line += _T(" ") + options;
+        ok = LaunchProcess(command_line);
+      }
+    }
+  }
+  return ok;
+}
+
+/*-----------------------------------------------------------------------------
+  See if screen capture is available and will work
+-----------------------------------------------------------------------------*/
+bool ScreenCaptureAvailable() {
+  bool ok = false;
+  HWND wnd = GetDesktopWindow();
+  if (wnd) {
+    HDC src = GetDC(NULL);
+    if (src) {
+      HDC dc = CreateCompatibleDC(src);
+      if (dc) {
+        RECT window_rect;
+        GetWindowRect(wnd, &window_rect);
+        int width = abs(window_rect.right - window_rect.left);
+        int height = abs(window_rect.top - window_rect.bottom);
+        if (width && height) {
+          HBITMAP bitmap = CreateCompatibleBitmap(src, width, height); 
+          if (bitmap) {
+            HBITMAP hOriginal = (HBITMAP)SelectObject(dc, bitmap);
+            if (BitBlt(dc, 0, 0, width, height, src, 0, 0, SRCCOPY|CAPTUREBLT) )
+              ok = true;
+
+            SelectObject(dc, hOriginal);
+            DeleteObject(bitmap);
+          }
+        }
+        DeleteDC(dc);
+      }
+      ReleaseDC(wnd, src);
+    }
+  }
+  return ok;
 }

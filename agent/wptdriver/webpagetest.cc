@@ -243,6 +243,12 @@ bool WebPagetest::DeleteIncrementalResults(WptTestDriver& test) {
 
 /*-----------------------------------------------------------------------------
 -----------------------------------------------------------------------------*/
+void WebPagetest::StartTestRun(WptTestDriver& test) {
+  test.marked_done_ = false;
+}
+
+/*-----------------------------------------------------------------------------
+-----------------------------------------------------------------------------*/
 bool WebPagetest::UploadIncrementalResults(WptTestDriver& test) {
   bool ret = true;
 
@@ -254,9 +260,20 @@ bool WebPagetest::UploadIncrementalResults(WptTestDriver& test) {
     GetImageFiles(directory, image_files);
     ret = UploadImages(test, image_files);
     if (ret) {
-      ret = UploadData(test, false);
-      SetCPUUtilization(0);
+      // See if this is the last run we are testing and if so, pass the done flag
+      // through now instead of waiting for TestDone() to prevent double-calls
+      // to workdone.
+      bool done = false;
+      if (test._fv_only || !test._clear_cache) {
+        if (test._specific_run || test._run == test._runs) {
+          done = true;
+        }
+      }
+      ret = UploadData(test, done);
+      if (done && ret)
+        test.marked_done_ = true;
     }
+    g_shared->SetCPUUtilization(0);
   } else {
     DeleteIncrementalResults(test);
   }
@@ -271,13 +288,14 @@ bool WebPagetest::TestDone(WptTestDriver& test){
   bool ret = true;
 
   UpdateDNSServers();
-  CString directory = test._directory + CString(_T("\\"));
-  CAtlList<CString> image_files;
-  GetImageFiles(directory, image_files);
-  ret = UploadImages(test, image_files);
-  if (ret) {
-    ret = UploadData(test, true);
-    SetCPUUtilization(0);
+  if (!test.marked_done_) {
+    CString directory = test._directory + CString(_T("\\"));
+    CAtlList<CString> image_files;
+    GetImageFiles(directory, image_files);
+    ret = UploadImages(test, image_files);
+    if (ret)
+      ret = UploadData(test, true);
+    g_shared->SetCPUUtilization(0);
   }
 
   ATLTRACE(_T("[wptdriver] - Test Done"));
@@ -315,11 +333,13 @@ void WebPagetest::GetFiles(const CString& directory,
 }
 
 /*-----------------------------------------------------------------------------
+  Upload any binary files that are larger than 100KB separately
 -----------------------------------------------------------------------------*/
 bool WebPagetest::UploadImages(WptTestDriver& test,
                                CAtlList<CString>& image_files) {
   bool ret = true;
 
+  LogDuration logBrowserLaunchTime(test.TimeLog(), "Upload Images");
   // Upload the large binary files individually (e.g. images, tcpdump).
   CString url = _settings._server + _T("work/resultimage.php");
   POSITION pos = image_files.GetHeadPosition();
@@ -328,22 +348,28 @@ bool WebPagetest::UploadImages(WptTestDriver& test,
     if (!test._discard_test) {
       if (test._process_results) {
         CAtlList<CString> newFiles;
-        if (ProcessFile(file, newFiles)) {
+        if (ProcessFile(test, file, newFiles)) {
           POSITION newFilePos = newFiles.GetHeadPosition();
           while (ret && newFilePos) {
             CString newFile = newFiles.GetNext(newFilePos);
-            ret = UploadFile(url, false, test, newFile);
-            if (ret)
-              DeleteFile(newFile);
+            if (FileSize(newFile) > 100000) {
+              ret = UploadFile(url, false, test, newFile);
+              if (ret)
+                DeleteFile(newFile);
+            }
           }
         }
       }
-      if (ret)
+      if (ret && FileSize(file) > 100000) {
         ret = UploadFile(url, false, test, file);
-    }
-    if (ret)
+        if (ret)
+          DeleteFile(file);
+      }
+    } else {
       DeleteFile(file);
+    }
   }
+
   return ret;
 }
 
@@ -354,6 +380,7 @@ bool WebPagetest::UploadData(WptTestDriver& test, bool done) {
 
   CString file = NO_FILE;
   CString dir = test._directory + CString(_T("\\"));
+
   ret = CompressResults(dir, dir + _T("results.zip"));
   if (ret)
     file = dir + _T("results.zip");
@@ -782,11 +809,17 @@ void WebPagetest::BuildFormData(WptSettings& settings, WptTestDriver& test,
     form_data += test._run_error + "\r\n";
   }
 
-  // done flag
+  // done flag and pass-through data fields
   if (done) {
     form_data += CStringA("--") + boundary + "\r\n";
     form_data += "Content-Disposition: form-data; name=\"done\"\r\n\r\n";
     form_data += "1\r\n";
+
+    if (!test._job_info.IsEmpty()) {
+      form_data += CStringA("--") + boundary + "\r\n";
+      form_data += "Content-Disposition: form-data; name=\"jobInfo\"\r\n\r\n";
+      form_data += test._job_info + "\r\n";
+    }
   }
 
   if (_computer_name.GetLength()) {
@@ -814,7 +847,7 @@ void WebPagetest::BuildFormData(WptSettings& settings, WptTestDriver& test,
     form_data += CStringA(CT2A(_dns_servers)) + "\r\n";
   }
 
-  int cpu_utilization = GetCPUUtilization();
+  int cpu_utilization = g_shared->CPUUtilization();
   if (cpu_utilization > 0) {
     form_data += CStringA("--") + boundary + "\r\n";
     form_data += "Content-Disposition: form-data; name=\"cpu\"\r\n\r\n";
@@ -851,7 +884,7 @@ bool WebPagetest::CompressResults(CString directory, CString zip_file) {
   if (file) {
     ret = true;
     WIN32_FIND_DATA fd;
-    HANDLE find_handle = FindFirstFile( directory + _T("*.*"), &fd);
+    HANDLE find_handle = FindFirstFile(directory + _T("*.*"), &fd);
     if (find_handle != INVALID_HANDLE_VALUE) {
       do {
         if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
@@ -866,8 +899,16 @@ bool WebPagetest::CompressResults(CString directory, CString zip_file) {
                 if (mem) {
                   DWORD bytes;
                   if (ReadFile(new_file,mem,size,&bytes, 0) && size == bytes) {
-                    if (!zipOpenNewFileInZip(file, CT2A(fd.cFileName), 0, 0, 0, 
-                                     0, 0, 0,Z_DEFLATED,Z_BEST_COMPRESSION )) {
+                    CStringA destFile = CT2A(fd.cFileName, CP_UTF8);
+                    int split_pos = destFile.Find("_progress_");
+                    if (split_pos > 0) {
+                      CStringA dir = "video_" + destFile.Left(split_pos).MakeLower();
+                      CStringA video_file = "frame" + destFile.Mid(split_pos + 9);
+                      destFile = dir + "/" + video_file;
+                    }
+
+                    // The files are already compressed, just store them
+                    if (!zipOpenNewFileInZip(file, destFile, 0, 0, 0, 0, 0, 0, Z_DEFLATED, Z_NO_COMPRESSION)) {
                       zipWriteInFileInZip(file, mem, size);
                       zipCloseFileInZip(file);
                     }
@@ -1184,61 +1225,61 @@ void WebPagetest::UpdateDNSServers() {
 /*-----------------------------------------------------------------------------
   Run python-based post-processing on the trace, pcap, etc files
 -----------------------------------------------------------------------------*/
-bool WebPagetest::ProcessFile(CString file, CAtlList<CString> &newFiles) {
+bool WebPagetest::ProcessFile(WptTestDriver& test, CString file, CAtlList<CString> &newFiles) {
   bool hasNewFiles = false;
   int pos = -1;
   if ((pos = file.Find(_T("trace.json"))) >= 0) {
+    LogDuration logTrace(test.TimeLog(), "Process Trace");
     CString cpuFile = file.Left(pos) + _T("timeline_cpu.json.gz");
+    CString scriptTimingFile = file.Left(pos) + _T("script_timing.json.gz");
     CString userTimingFile = file.Left(pos) + _T("user_timing.json.gz");
     CString featureUsageFile = file.Left(pos) + _T("feature_usage.json.gz");
+    CString interactiveFile = file.Left(pos) + _T("interactive.json.gz");
+    CString v8file = file.Left(pos) + _T("v8stats.json.gz");
     CString options;
-    options.Format(_T("-t \"%s\" -c \"%s\" -u \"%s\" -f \"%s\""),
-                   (LPCTSTR)file, (LPCTSTR)cpuFile, (LPCTSTR)userTimingFile,
-                   (LPCTSTR)featureUsageFile);
-    if (RunPythonScript(_T("trace-parser.py"), options)) {
+    options.Format(_T("-t \"%s\" -c \"%s\" -j \"%s\" -u \"%s\" -f \"%s\" -i \"%s\" -s \"%s\""),
+                   (LPCTSTR)file, (LPCTSTR)cpuFile, (LPCTSTR)scriptTimingFile,
+                   (LPCTSTR)userTimingFile, (LPCTSTR)featureUsageFile,
+                   (LPCTSTR)interactiveFile, (LPCTSTR)v8file);
+    OutputDebugStringA("Processing trace file");
+    if (RunPythonScript(_T("support\\trace-parser.py"), options)) {
       if (FileExists(cpuFile)) {
         hasNewFiles = true;
         newFiles.AddTail(cpuFile);
+      }
+      if (FileExists(scriptTimingFile)) {
+        hasNewFiles = true;
+        newFiles.AddTail(scriptTimingFile);
       }
       if (FileExists(userTimingFile)) {
         hasNewFiles = true;
         newFiles.AddTail(userTimingFile);
       }
+      if (FileExists(featureUsageFile)) {
+        hasNewFiles = true;
+        newFiles.AddTail(featureUsageFile);
+      }
+      if (FileExists(interactiveFile)) {
+        hasNewFiles = true;
+        newFiles.AddTail(interactiveFile);
+      }
     }
+    OutputDebugStringA("Processing trace file - complete");
+    logTrace.Stop();
   } else if ((pos = file.Find(_T(".cap"))) >= 0) {
+    LogDuration logPcap(test.TimeLog(), "Process tcpdump");
     CString slicesFile = file.Left(pos) + _T("_pcap_slices.json.gz");
     CString options;
     options.Format(_T("-i \"%s\" -d \"%s\""),
                    (LPCTSTR)file, (LPCTSTR)slicesFile);
-    if (RunPythonScript(_T("pcap-parser.py"), options)) {
+    if (RunPythonScript(_T("support\\pcap-parser.py"), options)) {
       if (FileExists(slicesFile)) {
         hasNewFiles = true;
         newFiles.AddTail(slicesFile);
       }
     }
+    logPcap.Stop();
   }
   return hasNewFiles;
 }
 
-/*-----------------------------------------------------------------------------
-  Run the given python script and wait for a result (assume C:\Python27)
------------------------------------------------------------------------------*/
-bool WebPagetest::RunPythonScript(CString script, CString options) {
-  bool ok = false;
-  CString command_line = _T("C:\\Python27\\python.exe");
-  if (FileExists(command_line)) {
-    TCHAR dir[MAX_PATH];
-    if (GetModuleFileName(NULL, dir, _countof(dir))) {
-      *PathFindFileName(dir) = 0;
-      CString script_path = dir;
-      script_path += _T("support\\") + script;
-      if (FileExists(script_path)) {
-        command_line += _T(" \"") + script_path + _T("\"");
-        if (options.GetLength())
-          command_line += _T(" ") + options;
-        ok = LaunchProcess(command_line);
-      }
-    }
-  }
-  return ok;
-}

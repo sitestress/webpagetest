@@ -92,15 +92,22 @@ function ValidateInput(form)
 })(jQuery);
 
 function RestoreSettings() {
-    if (wptStorage['testVideo'] != undefined && wptStorage['testVideo'])
-        $('#videoCheck').prop('checked', true);
+  if (!forgetSettings) {
+    if (wptStorage['testVideo'] != undefined)
+        $('#videoCheck').prop('checked', wptStorage['testVideo']);
+    if (wptStorage['testTimeline'] != undefined)
+        $('#timeline').prop('checked', wptStorage['testTimeline']);
     if (wptStorage['testLoc'] != undefined)
         $('#location').val(wptStorage['testLoc']); 
     LocationChanged();
+  }
 }
 
 function SaveSettings() {
+  if (!forgetSettings) {
     wptStorage['testVideo'] = $('#videoCheck').is(':checked');
+    wptStorage['testTimeline'] = $('#timeline').is(':checked');
+  }
 }
 
 /*
@@ -278,26 +285,6 @@ function ConnectionChanged()
         var setSpeed = true;
         
         var backlog = locations[config]['backlog'];
-        var wait = locations[config]['wait'];
-        var waitText = '';
-        if( wait < 0 ) {
-            waitText = 'Location is offline, please select a different browser or location';
-            $('#wait').removeClass('backlogWarn').addClass('backlogHigh');
-        } else if( wait > 120 ) {
-            waitText = 'Location is exceptionally busy, please select a different location or try again later';
-            $('#wait').removeClass('backlogWarn').addClass('backlogHigh');
-        } else {
-            $('#wait').removeClass('backlogWarn , backlogHigh');
-            if( wait == 1 )
-                waitText = '1 minute';
-            else if (wait > 0) {
-                if (wait > 120)
-                    waitText = Math.rount(wait / 60) + ' hours';
-                else
-                    waitText = wait + ' minutes';
-            } else
-                waitText = 'None';
-        }
 
         var up = locations[config]['up'] / 1000;
         var down = locations[config]['down'] / 1000;
@@ -336,8 +323,6 @@ function ConnectionChanged()
         else
             $('#pending_tests').removeClass('backlogWarn , hidden').addClass("backlogHigh");
 
-        $('#wait').text(waitText);
-            
         UpdateSettingsSummary();
     }
 }

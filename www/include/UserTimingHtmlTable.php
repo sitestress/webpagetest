@@ -15,6 +15,7 @@ class UserTimingHtmlTable {
   private $hasUserTiming;
   private $hasFirstPaint;
   private $hasDomInteractive;
+  private $hasTTI;
 
   /**
    * UserTimingHtmlTable constructor.
@@ -27,6 +28,7 @@ class UserTimingHtmlTable {
     $this->hasUserTiming = $this->_initUserTimings();
     $this->hasFirstPaint = $this->runResults->hasValidMetric("firstPaint");
     $this->hasDomInteractive = $this->runResults->hasValidMetric("domInteractive");
+    $this->hasTTI = $this->runResults->hasValidMetric("TimeToInteractive") || $this->runResults->hasValidMetric("TTIMeasurementEnd");
     $this->isMultistep = $runResults->countSteps() > 1;
   }
 
@@ -47,9 +49,12 @@ class UserTimingHtmlTable {
     if ($this->isMultistep) {
       $out .= "<th>Step</th>";
     }
+    if ($this->hasTTI)
+      $out .= "<th><a href=\"https://github.com/WPO-Foundation/webpagetest/blob/master/docs/Metrics/TimeToInteractive.md\">Interactive (beta)</a></th>";
     if ($this->hasUserTiming) {
       foreach ($this->userTimings[0] as $label => $value)
-        $out .= '<th>' . htmlspecialchars($label) . '</th>';
+        if (count($this->userTimings[0]) < 5 || substr($label, 0, 5) !== 'goog_')
+          $out .= '<th>' . htmlspecialchars($label) . '</th>';
     }
     if ($this->hasNavTiming) {
       $out .= "<th$borderClass>";
@@ -78,9 +83,18 @@ class UserTimingHtmlTable {
     if ($this->isMultistep) {
       $out .= "<td>" . FitText($stepResult->readableIdentifier(), 30) . "</td>";
     }
+    if ($this->hasTTI) {
+      $tti = '-';
+      if ($stepResult->getMetric("TimeToInteractive"))
+        $tti = $this->_getTimeMetric($stepResult, "TimeToInteractive");
+      elseif ($stepResult->getMetric("TTIMeasurementEnd"))
+        $tti = '&GT; ' . $this->_getTimeMetric($stepResult, "TTIMeasurementEnd");
+      $out .= "<td>$tti</td>";
+    }
     if ($this->hasUserTiming)
       foreach ($stepUserTiming as $label => $value)
-        $out .= '<td>' . htmlspecialchars($value) . '</td>';
+        if (count($stepUserTiming) < 5 || substr($label, 0, 5) !== 'goog_')
+          $out .= '<td>' . htmlspecialchars($value) . '</td>';
     if ($this->hasNavTiming) {
       $out .= "<td$borderClass>";
       if ($this->hasFirstPaint)

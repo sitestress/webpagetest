@@ -1,6 +1,7 @@
 <?php
 include 'common.inc';
 require_once('page_data.inc');
+require_once('breakdown.inc');
 require_once('object_detail.inc');
 require_once('./video/visualProgress.inc.php');
 set_time_limit(3600);
@@ -127,7 +128,7 @@ function csvPageData($id, $testPath, $runs) {
   if( $_GET['requests'] ) {
     for( $i = 1; $i <= $runs; $i++ ) {
       for ($cached = 0; $cached <= 1; $cached++) {
-        $requests = getRequests($id, $testPath, $i, $cached, $secure, $loc, false);
+        $requests = getRequests($id, $testPath, $i, $cached, $secure);
         if (isset($requests) && is_array($requests) && count($requests))
           foreach ($requests as &$row)
             csvArray($row, $id, $i, $cached);
@@ -138,10 +139,20 @@ function csvPageData($id, $testPath, $runs) {
     if ($pageData && is_array($pageData) && count($pageData)) {
       for( $i = 1; $i <= $runs; $i++ ) {
         if (array_key_exists($i, $pageData)) {
-          if (array_key_exists(0, $pageData[$i]))
-            csvArray($pageData[$i][0], $id, $i, 0);
-          if (array_key_exists(1, $pageData[$i]))
-            csvArray($pageData[$i][1], $id, $i, 1);
+          for ($cached = 0; $cached <= 1; $cached++) {
+            if (array_key_exists($cached, $pageData[$i])) {
+              $breakdown = getBreakdown($id, $testPath, $i, $cached, $requests);
+              if (isset($breakdown) && is_array($breakdown) && count($breakdown)) {
+                foreach($breakdown as $mime_type => $b) {
+                  $pageData[$i][$cached]["bytes.$mime_type"] = $b['bytes'];
+                  $pageData[$i][$cached]["requests.$mime_type"] = $b['requests'];
+                  if (isset($b['bytesUncompressed']))
+                    $pageData[$i][$cached]["bytesUncompressed.$mime_type"] = $b['bytesUncompressed'];
+                }
+              }
+              csvArray($pageData[$i][$cached], $id, $i, $cached);
+            }
+          }
         }
       }
     }

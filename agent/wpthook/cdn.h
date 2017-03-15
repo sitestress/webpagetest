@@ -171,6 +171,12 @@ CDN_PROVIDER cdnList[] = {
   {".raxcdn.com", "Rackspace"},
   {".unicorncdn.net", "UnicornCDN"},
   {".optimalcdn.com", "Optimal CDN"},
+  {".kinxcdn.com", "KINX CDN"},
+  {".kinxcdn.net", "KINX CDN"},
+  {".stackpathdns.com", "StackPath"},
+  {".hosting4cdn.com", "Hosting4CDN"},
+  {".netlify.com", "Netlify"},
+  {".b-cdn.net", "BunnyCDN"},
   {"END_MARKER", "END_MARKER"}
 };
 
@@ -183,6 +189,7 @@ CDN_PROVIDER_HEADER cdnHeaderList[] = {
   {"server", "NetDNA", "NetDNA"},
   {"server", "Airee", "Airee"},
   {"X-CDN-Geo", "", "OVH CDN"},
+  {"X-CDN-Pop", "", "OVH CDN"},
   {"X-Px", "", "CDNetworks"},
   {"X-Instart-Request-ID", "instart", "Instart Logic"},
   {"Via", "CloudFront", "Amazon CloudFront"},
@@ -190,6 +197,7 @@ CDN_PROVIDER_HEADER cdnHeaderList[] = {
   {"X-Edge-Location", "", "CDN"},
   {"X-HW", "", "Highwinds"},
   {"X-Powered-By", "NYI FTW", "NYI FTW"},
+  {"X-Delivered-By", "NYI FTW", "NYI FTW"},
   {"server", "ReSRC", "ReSRC.it"},
   {"X-Cdn", "Zenedge", "Zenedge"},
   {"server", "leasewebcdn", "LeaseWeb CDN"},
@@ -201,6 +209,7 @@ CDN_PROVIDER_HEADER cdnHeaderList[] = {
   {"server", "gws", "Google"},
   {"server", "GSE", "Google"},
   {"server", "Golfe2", "Google"},
+  {"Via", "google", "Google"},
   {"server", "tsa_b", "Twitter"},
   {"X-Cache", "cache.51cdn.com", "ChinaNetCenter"},
   {"X-CDN", "Incapsula", "Incapsula"},
@@ -209,10 +218,17 @@ CDN_PROVIDER_HEADER cdnHeaderList[] = {
   {"server", "gocache", "GoCache"},
   {"server", "hiberniacdn", "HiberniaCDN"},
   {"server", "UnicornCDN", "UnicornCDN"},
-  {"server", "Optimal CDN", "Optimal CDN"}
+  {"server", "Optimal CDN", "Optimal CDN"},
+  {"server", "Sucuri/Cloudproxy", "Sucuri Firewall"},
+  {"x-sucuri-id", "", "Sucuri Firewall"},
+  {"server", "Netlify", "Netlify"},
+  {"section-io-id", "", "section.io"},
+  {"server", "Testa/", "Naver"},
+  {"server", "BunnyCDN", "BunnyCDN"},
+  {"server", "MNCDN", "Medianova"}
 };
 
 // Specific providers that require multiple headers
 CDN_PROVIDER_MULTI_HEADER cdnMultiHeaderList[] = {
-  {"Fastly", {{"Via", "varnish"}, {"X-Served-By", "cache-"}, {"X-Cache", ""}}}
+  {"Fastly", {{"Via", ""}, {"X-Served-By", "cache-"}, {"X-Cache", ""}}}
 };

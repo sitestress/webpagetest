@@ -10,10 +10,12 @@ class RunResultHtmlTable {
   const COL_USER_TIME = "userTime";
   const COL_DOM_TIME = "domTime";
   const COL_DOM_ELEMENTS = "domElements";
+  const COL_TTI = "TimeToInteractive";
   const COL_SPEED_INDEX = "SpeedIndex";
   const COL_VISUAL_COMPLETE = "visualComplete";
   const COL_RESULT = "result";
   const COL_COST = "cost";
+  const COL_CERTIFICATE_BYTES = "certificate_bytes";
 
   /* @var TestInfo */
   private $testInfo;
@@ -39,20 +41,27 @@ class RunResultHtmlTable {
     $this->runResults = $runResults;
     $this->rvRunResults = $rvRunResults;
     $this->isMultistep = $runResults->isMultistep();
-    $this->leftOptionalColumns = array(self::COL_LABEL, self::COL_ABOVE_THE_FOLD, self::COL_USER_TIME,
-      self::COL_DOM_TIME, self::COL_DOM_ELEMENTS, self::COL_SPEED_INDEX, self::COL_VISUAL_COMPLETE, self::COL_RESULT);
-    $this->rightOptionalColumns = array(self::COL_COST);
+    $this->leftOptionalColumns = array(self::COL_LABEL, self::COL_USER_TIME,
+      self::COL_TTI, self::COL_SPEED_INDEX, self::COL_VISUAL_COMPLETE, self::COL_RESULT);
+    $this->rightOptionalColumns = array(self::COL_CERTIFICATE_BYTES, self::COL_COST);
     $this->enabledColumns = array();
 
     // optional columns default setting based on data
     $this->enabledColumns[self::COL_LABEL] = $this->testInfo->getRuns() > 1 || $this->isMultistep || $this->rvRunResults;
     $this->enabledColumns[self::COL_ABOVE_THE_FOLD] = $testInfo->hasAboveTheFoldTime();
     $this->enabledColumns[self::COL_RESULT] = true;
-    $checkByMetric = array(self::COL_USER_TIME, self::COL_DOM_TIME, self::COL_DOM_ELEMENTS, self::COL_SPEED_INDEX,
+    $this->enabledColumns[self::COL_CERTIFICATE_BYTES] = $runResults->hasValidNonZeroMetric('certificate_bytes');
+    $checkByMetric = array(self::COL_USER_TIME, self::COL_DOM_TIME, self::COL_TTI, self::COL_SPEED_INDEX,
                            self::COL_VISUAL_COMPLETE);
     foreach ($checkByMetric as $col) {
       $this->enabledColumns[$col] = $runResults->hasValidMetric($col) ||
                                    ($rvRunResults && $rvRunResults->hasValidMetric($col));
+    }
+    
+    // Special-case the check for TTI
+    if (!$this->enabledColumns[self::COL_TTI]) {
+      $this->enabledColumns[self::COL_TTI] = $runResults->hasValidMetric('TTIMeasurementEnd') ||
+                                   ($rvRunResults && $rvRunResults->hasValidMetric('TTIMeasurementEnd'));
     }
   }
 
@@ -131,8 +140,8 @@ class RunResultHtmlTable {
     if ($this->isColumnEnabled(self::COL_DOM_TIME)) {
       $out .= $this->_headCell("DOM Element");
     }
-    if ($this->isColumnEnabled(self::COL_DOM_ELEMENTS)) {
-      $out .= $this->_headCell("DOM Elements");
+    if ($this->isColumnEnabled(self::COL_TTI)) {
+      $out .= $this->_headCell("<a href=\"https://github.com/WPO-Foundation/webpagetest/blob/master/docs/Metrics/TimeToInteractive.md\">Interactive (beta)</a>");
     }
     if ($this->isColumnEnabled(self::COL_RESULT)) {
       $out .= $this->_headCell("Result (error&nbsp;code)");
@@ -144,6 +153,10 @@ class RunResultHtmlTable {
       $out .= $this->_headCell("Bytes In");
     }
 
+    if ($this->isColumnEnabled(self::COL_CERTIFICATE_BYTES)) {
+      $out .= $this->_headCell("Certificates");
+    }
+    
     if ($this->isColumnEnabled(self::COL_COST)) {
       $out .= $this->_headCell("Cost");
     }
@@ -224,10 +237,13 @@ class RunResultHtmlTable {
     if ($this->isColumnEnabled(self::COL_DOM_TIME)) {
       $out .= $this->_bodyCell($idPrefix . "DomTime" . $idSuffix, $this->_getIntervalMetric($stepResult, "domTime"), $class);
     }
-    if ($this->isColumnEnabled(self::COL_DOM_ELEMENTS)) {
-      $domElements = $stepResult->getMetric("domElements");
-      $domElements = $domElements !== null ? $domElements : "-";
-      $out .= $this->_bodyCell($idPrefix . "DomElements" . $idSuffix, $domElements, $class);
+    if ($this->isColumnEnabled(self::COL_TTI)) {
+      $value = '-';
+      if ($stepResult->getMetric("TimeToInteractive"))
+        $value = $this->_getIntervalMetric($stepResult, "TimeToInteractive");
+      elseif ($stepResult->getMetric("TTIMeasurementEnd"))
+        $value = '&GT; ' . $this->_getIntervalMetric($stepResult, "TTIMeasurementEnd");
+      $out .= $this->_bodyCell($idPrefix. "TimeToInteractive" . $idSuffix, $value, $class);
     }
     if ($this->isColumnEnabled(self::COL_RESULT)) {
       $out .= $this->_bodyCell($idPrefix . "result" . $idSuffix, $this->_getSimpleMetric($stepResult, "result"), $class);
@@ -243,6 +259,10 @@ class RunResultHtmlTable {
     $out .= $this->_bodyCell($idPrefix . "Requests" . $idSuffix, $this->_getSimpleMetric($stepResult, "requests"), $class);
     $out .= $this->_bodyCell($idPrefix . "BytesIn" . $idSuffix, $this->_getByteMetricInKbyte($stepResult, "bytesIn"), $class);
 
+    if ($this->isColumnEnabled(self::COL_CERTIFICATE_BYTES)) {
+      $out .= $this->_bodyCell($idPrefix . "CertificateBytes" . $idSuffix, $this->_getByteMetricInKbyte($stepResult, "certificate_bytes"), $class);
+    }
+    
     if ($this->isColumnEnabled(self::COL_COST)) {
       if ($cachedRun) {
         $out .= "<td>&nbsp;</td>";

@@ -61,11 +61,12 @@ private:
   WptTest&      _test;
   Trace         &_trace;
   bool          _saved;
-  LARGE_INTEGER _visually_complete;
+  LARGE_INTEGER _last_visual_change;
 
   CStringA      base_page_CDN_;
   int           base_page_redirects_;
   int           base_page_result_;
+  int           base_page_ttfb_;
   LARGE_INTEGER base_page_complete_;
   CStringA      base_page_server_rtt_;
   int           base_page_address_count_;
@@ -85,6 +86,9 @@ private:
   int count_not_found_doc_;
   int count_other_;
   int count_other_doc_;
+  int certificate_bytes_;
+  int visually_complete_;
+  int speed_index_;
 
   DWORD peak_memory_;
   DWORD peak_process_count_;
@@ -92,7 +96,7 @@ private:
   void ProcessRequests(void);
   void SavePageData(OptimizationChecks&);
   void SaveRequests(OptimizationChecks&);
-  void SaveRequest(HANDLE file, HANDLE headers, Request * request, int index);
+  void SaveRequest(gzFile file, gzFile headers, Request * request, int index);
   void SaveImages(void);
   void SaveVideo(void);
   void SaveProgressData(void);
@@ -106,7 +110,7 @@ private:
   void SaveTimedEvents(void);
   void SaveCustomMetrics(void);
   void SaveUserTiming(void);
-  void SaveHistogram(CStringA& histogram, CString file);
+  void SaveHistogram(CStringA& histogram, CString file, bool compress);
   CStringA GetHistogramJSON(CxImage& image);
   bool NativeRequestExists(Request * browser_request);
   void SavePriorityStreams();

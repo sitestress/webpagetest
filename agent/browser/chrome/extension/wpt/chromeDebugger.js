@@ -53,6 +53,7 @@ var NAV_TIMING_SCRIPT = "\
       }\
     } catch(e){}\
   };\
+  addTime('domLoading');\
   addTime('domInteractive');\
   addTime('domContentLoadedEventStart');\
   addTime('domContentLoadedEventEnd');\
@@ -145,15 +146,15 @@ wpt.chromeDebugger.Init = function(tabId, chromeApi, callback) {
     g_instance.chromeApi_ = chromeApi;
     g_instance.startedCallback = callback;
     g_instance.trace = false;
-    g_instance.traceCategories = "*";
+    g_instance.traceCategories = "-*,blink,v8,cc,gpu,blink.net,netlog,disabled-by-default-v8.runtime_stats";
     g_instance.timeline = false;
     g_instance.statsDoneCallback = undefined;
     g_instance.mobileEmulation = undefined;
     g_instance.customMetrics = undefined;
     g_instance.timelineStackDepth = 0;
     g_instance.traceRunning = false;
-    g_instance.userTiming = [];
-    var version = '1.0';
+    g_instance.headers = {};
+    var version = '1.2';
     if (g_instance.chromeApi_['debugger'])
         g_instance.chromeApi_.debugger.attach({tabId: g_instance.tabId_}, version, wpt.chromeDebugger.OnAttachDebugger);
   } catch (err) {
@@ -166,11 +167,23 @@ wpt.chromeDebugger.SetActive = function(active) {
   if (active) {
     g_instance.requests = {};
     g_instance.idMap = {};
-    g_instance.userTiming = [];
     g_instance.receivedData = false;
     g_instance.statsDoneCallback = undefined;
     g_instance.customMetrics = undefined;
     wpt.chromeDebugger.StartTrace();
+  }
+};
+
+/**
+ * Execute a command in the context of the page
+ */
+wpt.chromeDebugger.Block = function(blockString) {
+  var patterns = blockString.split(" ");
+  var count = patterns.length;
+  for (var i = 0; i < count; i++) {
+    if (patterns[i].length) {
+      g_instance.chromeApi_.debugger.sendCommand({tabId: g_instance.tabId_}, 'Network.addBlockedURL', {"url": patterns[i]});
+    }
   }
 };
 
@@ -189,6 +202,11 @@ wpt.chromeDebugger.Exec = function(code, callback) {
 wpt.chromeDebugger.SetUserAgent = function(UAString) {
   g_instance.chromeApi_.debugger.sendCommand({tabId: g_instance.tabId_}, 'Network.setUserAgentOverride', {"userAgent": UAString});
 };
+
+wpt.chromeDebugger.AddHeader = function (name, value) {
+  g_instance.headers[name] = value;
+  g_instance.chromeApi_.debugger.sendCommand({tabId: g_instance.tabId_}, 'Network.setExtraHTTPHeaders', {"headers": g_instance.headers});
+}
 
 /**
  * Capture the network timeline
@@ -222,9 +240,9 @@ wpt.chromeDebugger.StartTrace = function() {
     else
       traceCategories = '-*';
     if (g_instance.timeline)
-      traceCategories = traceCategories + ',toplevel,blink.console,disabled-by-default-devtools.timeline,devtools.timeline,disabled-by-default-devtools.timeline.frame,devtools.timeline.frame';
+      traceCategories = traceCategories + ',toplevel,blink.console,disabled-by-default-devtools.timeline,devtools.timeline,disabled-by-default-devtools.timeline.frame,devtools.timeline.frame,disabled-by-default-blink.feature_usage,blink.user_timing';
     if (g_instance.timelineStackDepth > 0)
-      traceCategories += ',disabled-by-default-devtools.timeline.stack,devtools.timeline.stack';
+      traceCategories += ',disabled-by-default-v8.cpu_profiler';
     var params = {categories: traceCategories, options:'record-as-much-as-possible'};
     g_instance.chromeApi_.debugger.sendCommand({tabId: g_instance.tabId_}, 'Tracing.start', params);
   }
@@ -263,30 +281,22 @@ wpt.chromeDebugger.OnMessage = function(tabId, message, params) {
   var tracing = false;
   if (message === 'Tracing.dataCollected') {
     tracing = true;
-    if (params['value'] !== undefined) {
+    if (params['value'] !== undefined && params['value'].length && (g_instance.trace || g_instance.timeline)) {
       // Collect the netlog events separately for calculating the request timings
       var jsonStr = '';
       var len = params['value'].length;
       var first = true;
       for(var i = 0; i < len; i++) {
-        if (params['value'][i]['cat'] == 'blink.user_timing')
-          g_instance.userTiming.push(params['value'][i]);
         if (!first)
           jsonStr += ",\n";
         jsonStr += JSON.stringify(params['value'][i]);
         first = false;
       }
-      if (g_instance.trace || g_instance.timeline) {
-        wpt.chromeDebugger.sendEvent('trace', jsonStr);
-      }
+      wpt.chromeDebugger.sendEvent('trace', jsonStr);
     }
   }
   if (message === 'Tracing.tracingComplete') {
     tracing = true;
-    if (g_instance.userTiming.length) {
-      wpt.chromeDebugger.sendEvent('user_timing', JSON.stringify(g_instance.userTiming));
-      g_instance.userTiming = [];
-    }
     if (g_instance.statsDoneCallback)
       g_instance.statsDoneCallback();
   }
@@ -303,6 +313,10 @@ wpt.chromeDebugger.OnMessage = function(tabId, message, params) {
         params.frame['parentId'] === undefined &&
         g_instance.mobileEmulation != undefined) {
       g_instance.chromeApi_.debugger.sendCommand({tabId: g_instance.tabId_}, 'Page.setDeviceMetricsOverride', g_instance.mobileEmulation);
+    }
+
+    if (message === 'Page.loadEventFired') {
+      wpt.chromeDebugger.sendEvent('complete', '');
     }
     
     // Network events
@@ -715,6 +729,7 @@ wpt.chromeDebugger.collectNavigationTiming = function(callback) {
             result['domContentLoadedEventStart'] +
         '&domContentLoadedEventEnd=' +
             result['domContentLoadedEventEnd'] +
+        '&domLoading=' + result['domLoading'] +
         '&domInteractive=' + result['domInteractive'] +
         '&loadEventStart=' + result['loadEventStart'] +
         '&loadEventEnd=' + result['loadEventEnd'] +
@@ -798,21 +813,9 @@ wpt.chromeDebugger.SendInitiator = function(requestId, url, initiator_json) {
  * @param {string} event event string.
  * @param {string} data event data (post body).
  */
-wpt.chromeDebugger.sendEvent = function(event, data, callback) {
-  try {
-    var xhr = new XMLHttpRequest();
-    if (typeof callback !== 'undefined') {
-      xhr.onreadystatechange = function() {
-        if (xhr.readyState == 4) {
-          callback();
-        }
-      }
-    }
-    xhr.open('POST', 'http://127.0.0.1:8888/event/' + event, true);
-    xhr.send(data);
-  } catch (err) {
-    wpt.LOG.warning('Error sending request data XHR: ' + err);
-  }
+wpt.chromeDebugger.sendEvent = function(event, data) {
+  var url = 'http://127.0.0.1:8888/event/' + event ;
+  fetch(url, {method: 'POST', body: data});
 };
 
 })());  // namespace

@@ -37,6 +37,7 @@ public:
   bool GetTest(WptTestDriver& test);
   bool DeleteIncrementalResults(WptTestDriver& test);
   bool UploadIncrementalResults(WptTestDriver& test);
+  void StartTestRun(WptTestDriver& test);
   bool TestDone(WptTestDriver& test);
   DWORD WptVersion(){ return _revisionNo; }
 
@@ -64,7 +65,6 @@ private:
   void SetLoginCredentials(HINTERNET request);
   bool HttpGet(CString url, WptTestDriver& test, CString& test_string, 
                CString& zip_file);
-  bool ParseTest(CString& test_string, WptTestDriver& test);
   bool CrackUrl(CString url, CString &host, unsigned short &port, 
                 CString& object, DWORD &secure_flag);
   void BuildFormData(WptSettings& settings, WptTestDriver& test, 
@@ -85,6 +85,5 @@ private:
   bool UnzipTo(CString zip_file, CString dest);
   void UpdateDNSServers();
   bool GetNameFromMAC(LPTSTR name, DWORD &len);
-  bool ProcessFile(CString file, CAtlList<CString> &newFiles);
-  bool RunPythonScript(CString script, CString options);
+  bool ProcessFile(WptTestDriver& test, CString file, CAtlList<CString> &newFiles);
 };
